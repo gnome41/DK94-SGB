@@ -1,0 +1,21 @@
+# Hints for the static analysis of Donkey Kong (World) (Rev 1) (SGB Enhanced).
+# Addresses are "AAAA" (fixed bank) or "BB:AAAA" (switchable bank, hex).
+
+# Jump-table dispatchers, reached by rst 08h or call $0FD9: A = index,
+# followed by an inline table of 16-bit targets
+# (0008: jp $0FD9 -> pop hl / add hl,a*2 / jp hl).  Never return.
+jump_table_routines = [0x0008, 0x0FD9]
+
+# Routines that switch the ROM bank to the value in A
+# (0010: ldh [$8C],a / ld [$2000],a / ret; 0FE5 is an identical copy).
+bank_switch_routines = [0x0010, 0x0FE5]
+
+# Tables of 3-byte (bank, little-endian address) far pointers.
+# 2B48: dispatched by the trampoline at 2A59 (index in $C105).
+far_tables = [{ addr = "2B48" }]
+
+# Routines that never return to their caller.
+noreturn = []
+
+# Extra entry points the tracer cannot find on its own.
+entries = []
