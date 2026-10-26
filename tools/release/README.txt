@@ -50,6 +50,8 @@ Battery saves are written next to the ROM (.sav).
 
 Mods: put mod packs in the mods/ folder and enable them in the launcher
 (MOD PACKS > MANAGE...). F9 toggles them in game. See MODDING.md.
+mods/DK94-Example is an example pack (HD border, HD timer digits, a new
+first-stage tune) - enable it to try mods, or copy it to start your own.
 
 Command line: dk94 --help (any option skips the launcher).
 

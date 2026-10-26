@@ -35,6 +35,7 @@ stage_common() {   # $1 = staging dir
     sed "s/@VERSION@/$VERSION/" "$ROOT/tools/release/README.txt" > "$1/README.txt"
     cp "$ROOT/MODDING.md" "$1/MODDING.md"
     printf 'Put mod packs here, one folder per pack. See MODDING.md.\n' > "$1/mods/README.txt"
+    cp -r "$ROOT/examples/mods/DK94-Example" "$1/mods/"
     cp "$ROOT/LICENSE" "$1/LICENSE.txt"
     cp "$TINYCC_DIR/COPYING" "$1/licenses/TinyCC-COPYING.txt"
     cp "$CACHE/$TCC_TAR" "$1/source/"
