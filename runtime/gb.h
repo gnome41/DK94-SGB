@@ -166,11 +166,11 @@ void trace_write(uint16_t addr, uint8_t v);
 void trace_read(uint16_t addr, uint8_t v);
 void trace_frame(void);
 
-/* recompiled code (generated) */
+/* recompiled code: linked in (developer build) or compiled at runtime
+ * from the user's ROM (player build, runtime/native.c) */
 typedef void (*GenFn)(void);
 typedef struct { uint8_t bank; uint16_t addr; GenFn fn; } GenEntry;
-extern const GenEntry gen_entries[];
-extern const size_t gen_entry_count;
-extern const uint32_t gen_rom_crc32;
+void dispatch_set_code(const GenEntry *entries, size_t count);
+uint32_t expected_rom_crc32(void);
 
 #endif

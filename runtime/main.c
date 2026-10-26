@@ -6,6 +6,17 @@
 #include "pad.h"
 #include "files.h"
 #include "launcher.h"
+#include "recomp/recomp.h"
+
+uint32_t expected_rom_crc32(void) { return dk94_game.rom_crc32; }
+
+#ifdef DK94_STATIC_CODE
+extern const GenEntry gen_static_entries[];
+extern const size_t gen_static_count;
+#endif
+#ifdef DK94_PLAYER
+bool native_load(void);
+#endif
 
 Options opt = { .sgb = true };
 
@@ -102,10 +113,10 @@ int main(int argc, char **argv)
     }
 
     uint32_t crc = crc32_buf(gb.rom, gb.rom_size);
-    if (crc != gen_rom_crc32 && !opt.interp_only) {
+    if (crc != expected_rom_crc32() && !opt.interp_only) {
         snprintf(msg, sizeof msg, "ROM CRC32 %08X does not match the recompiled ROM (%08X).\n"
                                   "Use the ROM this build was generated from, or --interp.",
-                 (unsigned)crc, (unsigned)gen_rom_crc32);
+                 (unsigned)crc, (unsigned)expected_rom_crc32());
         platform_error(msg);
         return 1;
     }
@@ -141,6 +152,13 @@ int main(int argc, char **argv)
     }
     if (!opt.no_save)
         cart_load_sram(sav);
+#ifdef DK94_STATIC_CODE
+    dispatch_set_code(gen_static_entries, gen_static_count);
+#endif
+#ifdef DK94_PLAYER
+    if (!opt.interp_only && !native_load())
+        fprintf(stderr, "note: recompilation failed - running on the interpreter\n");
+#endif
     cpu_reset();
     run_forever();
     return 0;

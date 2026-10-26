@@ -6,15 +6,26 @@
 > your own copy of the game (and, optionally, of the Super Game Boy) — see
 > [Legal](#legal).
 
-Translates the Game Boy ROM's SM83 machine code into C ahead of time and
-links it with a small runtime (PPU, APU, timer, MBC1, Super Game Boy) on
-SDL2, giving a native executable for Linux and Windows.
+Translates the Game Boy ROM's SM83 machine code into C and runs it natively
+on a small runtime (PPU, APU, timer, MBC1, Super Game Boy) on SDL2, for
+Linux and Windows.
 
 The ROM is **not** included. You need
 `Donkey Kong (World) (Rev 1) (SGB Enhanced).gb`
-(SHA-1 `397ad2ff25627b83e02c71b54c72bb4deb39e0c0`). The build reads it to
-generate code; at runtime the executable loads it for graphics/data and
-checks its CRC32.
+(SHA-1 `397ad2ff25627b83e02c71b54c72bb4deb39e0c0`).
+
+There are two builds:
+
+* **Player** (what the releases contain): has no game code in it. When you
+  press PLAY it recompiles *your* ROM to C and compiles that in memory with
+  [TinyCC](https://bellard.org/tcc/) (about 0.3 s), so nothing derived
+  from the game is ever distributed or written to disk.
+* **Developer build**: recompiles the ROM at build time and links the code
+  in. Handy for development; the result contains game code, so it must
+  not be shared.
+
+Both run the same recompiler and produce identical results (verified with
+the state-hash test below).
 
 ### Launcher
 
@@ -55,29 +66,37 @@ works and those SNES-side sounds are silent.
 
 ## Build
 
-Requirements: CMake ≥ 3.16, Ninja (or make), a C11 compiler, Python ≥ 3.11, SDL2.
+Requirements: CMake ≥ 3.16, Ninja (or make), a C11 compiler, Python ≥ 3.11
+(build-time table generation only), SDL2. x86-64 only.
 
-### Linux
+### Player (distributable)
 
 ```sh
-cmake -S . -B build -G Ninja
-ninja -C build
-./build/dk94            # looks for the ROM in the current dir, then next to the exe
+cmake -S . -B build-player -G Ninja -DDK94_PLAYER=ON
+ninja -C build-player      # downloads TinyCC 0.9.27 (SHA-256 checked) unless -DTINYCC_DIR=...
+./build-player/dk94
 ```
 
-### Windows (cross-compiled from Linux/WSL with MinGW-w64)
+Windows, cross-compiled from Linux/WSL with MinGW-w64:
 
 ```sh
 # Arch: sudo pacman -S mingw-w64-gcc
 # SDL2 dev package: SDL2-devel-2.32.10-mingw.tar.gz from github.com/libsdl-org/SDL/releases
-cmake -S . -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake \
+cmake -S . -B build-win -G Ninja -DDK94_PLAYER=ON -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake \
       -DSDL2_DIR=$PWD/third_party/sdl2-mingw/SDL2-2.32.10/x86_64-w64-mingw32/lib/cmake/SDL2
 ninja -C build-win
 ```
 
-Ship `build-win/dk94.exe` + `build-win/SDL2.dll`; place the ROM next to them.
-A native Windows build with MSYS2 or MSVC works with the same CMakeLists
-(pass `-DSDL2_DIR=...`; Python must be on `PATH`).
+`tools/make_release.sh VERSION` builds both players and packages them, with
+the license notices, into `dist/` (see [Releases](#releases)).
+
+### Developer build (contains game code - do not distribute)
+
+```sh
+cmake -S . -B build -G Ninja      # needs the ROM in the source directory (or -DDK94_ROM=...)
+ninja -C build
+./build/dk94
+```
 
 ## Controls
 
@@ -138,16 +157,21 @@ Options: `--launcher`, `--fullscreen`, `--dmg` (plain Game Boy, no SGB border/co
 ## How it works
 
 ```
-tools/recomp/   Python recompiler
-  sm83.py         opcode table: every instruction's semantics as a C template
-  analyze.py      bank-aware control-flow discovery
-  emit_c.py       C emitter for recompiled functions and the interpreter
-  recomp.py       CLI (run by CMake)
-  overrides.toml  game-specific hints (jump-table/bank-switch routines, far-pointer tables)
-  coverage.txt    ROM addresses seen executing at runtime (extra entry points)
-runtime/        C runtime: cpu.c (dispatcher + interpreter), mem.c (memory map, MBC1,
-                IO, timer), ppu.c, apu.c, sgb.c, platform_sdl.c, main.c
+runtime/recomp/ the recompiler (C): recomp.c = bank-aware control-flow
+                discovery + C generation, used at runtime by the player and
+                at build time by tools/recomp/dk94_recomp.c
+runtime/        runtime: cpu.c (dispatcher + interpreter), mem.c (memory map,
+                MBC1, IO, timer), ppu.c, apu.c, sgb.c, platform_sdl.c, main.c,
+                native.c (player: compile with TinyCC), launcher.c, pad.c
                 SGB sound: sgb_sound.c (SNES-side BIOS logic), spc.c (SPC700), dsp.c (S-DSP)
+tools/recomp/
+  sm83.py         opcode table: every instruction's semantics as a C template
+  gen_tables.py   build-time generator: opcode table, interpreter, game notes,
+                  TinyCC prelude (none of it from the ROM)
+  overrides.toml  game notes: jump-table/bank-switch routines, far-pointer
+                  tables, expected ROM CRC32
+  coverage.txt    ROM addresses seen executing at runtime (extra entry points)
+  dk94_recomp.c   ahead-of-time recompiler CLI for the developer build
 ```
 
 * **Analysis.** Starting from the reset and interrupt vectors, the analyzer
@@ -161,6 +185,11 @@ runtime/        C runtime: cpu.c (dispatcher + interpreter), mem.c (memory map, 
   dispatcher can re-enter a function after a `ret`, an interrupt or a bank
   switch. Code in the switchable bank checks the mapped bank before each
   instruction.
+* **Compilation.** The developer build compiles the generated C with the
+  system compiler. The player compiles it at startup with TinyCC (shipped
+  as `libtcc.dll` / `libtcc.so`). The compiled code makes no external
+  references; it reaches the runtime through pointers bound after loading,
+  and a struct-layout probe checks both compilers agree before running it.
 * **Execution.** The dispatcher looks up `(mapped bank, pc)` and runs the
   recompiled function, or the fallback interpreter when there is none (code
   in RAM, such as the OAM-DMA routine in HRAM, or ROM code the analysis
@@ -217,15 +246,28 @@ Debugging aids (environment variables): `DK94_TRACE=file` /
 * **What you supply.** The game ROM and the optional Super Game Boy BIOS
   must be dumped from hardware you own. This project does not link to or
   provide them.
-* **Don't distribute builds.** A built executable contains the game's code
-  translated to C, i.e. Nintendo's copyrighted code in another form. Share
-  the source, never `dk94`/`dk94.exe` or `build*/gen/`.
+* **Only distribute the player.** A *developer* build contains the game's
+  code translated to C, i.e. Nintendo's copyrighted code in another form:
+  never share it, or `build*/gen/`. The *player* build contains no game
+  code; it recompiles the user's own ROM on their machine, in memory.
+  `tools/make_release.sh` checks the packages for ROM data before release.
 * **Clean implementation.** The S-DSP and SPC700 emulation were written from
   public hardware documentation (fullsnes, anomie's notes); hardware
   constants such as the envelope rate table are facts about the chip.
 * **License.** The source code is MIT-licensed (see `LICENSE`). The license
   covers only the source in this repository, not the game ROM, the Super
   Game Boy BIOS or any code generated from them. SDL2 is zlib-licensed.
+  TinyCC is LGPL-2.1; the player uses it as a separate, unmodified shared
+  library, and releases include its license and source.
+
+## Releases
+
+`tools/make_release.sh VERSION` produces
+`dist/DK94-Recomp-VERSION-windows-x64.zip` and
+`dist/DK94-Recomp-VERSION-linux-x86_64.tar.gz`. Each contains the player,
+`libtcc`, the license texts, a short readme, and TinyCC's source (LGPL);
+the Windows package also has `SDL2.dll`. Linux needs SDL2 from the
+distribution (e.g. `libsdl2-2.0-0`) and glibc 2.34 or newer.
 
 ## Limitations
 

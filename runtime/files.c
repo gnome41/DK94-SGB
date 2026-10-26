@@ -84,7 +84,7 @@ RomStatus rom_check(const char *path, uint32_t *crc_out)
     free(d);
     if (crc_out)
         *crc_out = crc;
-    return crc == gen_rom_crc32 ? ROM_OK : ROM_WRONG;
+    return crc == expected_rom_crc32() ? ROM_OK : ROM_WRONG;
 }
 
 BiosStatus bios_check(const char *path)

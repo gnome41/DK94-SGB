@@ -320,7 +320,7 @@ static void draw(void)
     char hintbuf[160];
     if (rom_status == ROM_WRONG) {
         snprintf(hintbuf, sizeof hintbuf, "ROM CRC32 %08X - THIS BUILD NEEDS %08X: DONKEY KONG (WORLD) (REV 1) (SGB ENHANCED)",
-                 (unsigned)rom_crc, (unsigned)gen_rom_crc32);
+                 (unsigned)rom_crc, (unsigned)expected_rom_crc32());
         hint = hintbuf;
     } else if (rom_status == ROM_MISSING) {
         hint = "REQUIRED: DONKEY KONG (WORLD) (REV 1) (SGB ENHANCED).GB";
@@ -786,6 +786,12 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
     }
 
     if (result == 1) {
+        if (!cfg.interp) {
+            /* the player recompiles the ROM before the game window opens */
+            set_message(C_TITLE, "RECOMPILING YOUR ROM TO NATIVE CODE...");
+            draw();
+            present();
+        }
         save_settings();
         opt.sgb = cfg.hw == 0;
         opt.view = cfg.view;

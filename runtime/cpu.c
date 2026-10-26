@@ -161,6 +161,15 @@ void interp_step(void)
 /* ---- dispatcher ---- */
 
 static GenFn *fn_table;
+static const GenEntry *code_entries;
+static size_t code_count;
+
+/* Registers recompiled code; entries for the same address: first wins. */
+void dispatch_set_code(const GenEntry *entries, size_t count)
+{
+    code_entries = entries;
+    code_count = count;
+}
 
 static void build_table(void)
 {
@@ -169,8 +178,8 @@ static void build_table(void)
         fprintf(stderr, "out of memory\n");
         exit(1);
     }
-    for (size_t i = 0; i < gen_entry_count; i++) {
-        const GenEntry *e = &gen_entries[i];
+    for (size_t i = 0; i < code_count; i++) {
+        const GenEntry *e = &code_entries[i];
         if (e->bank >= gb.rom_banks)
             continue;
         size_t idx = e->addr < 0x4000 ? e->addr : e->bank * 0x4000 + (e->addr - 0x4000);
@@ -181,7 +190,7 @@ static void build_table(void)
 
 void run_forever(void)
 {
-    if (!opt.interp_only)
+    if (!opt.interp_only && code_count)
         build_table();
     for (;;) {
         uint16_t pc = R.pc;

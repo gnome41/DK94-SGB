@@ -6,3 +6,4 @@ third_party/
 *:Zone.Identifier
 __pycache__/
 *.sfc
+dist/

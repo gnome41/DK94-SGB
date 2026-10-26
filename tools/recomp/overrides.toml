@@ -1,6 +1,9 @@
 # Hints for the static analysis of Donkey Kong (World) (Rev 1) (SGB Enhanced).
 # Addresses are "AAAA" (fixed bank) or "BB:AAAA" (switchable bank, hex).
 
+# CRC32 of the ROM these notes describe; other ROMs are rejected.
+rom_crc32 = 0xF777A5D8
+
 # Jump-table dispatchers, reached by rst 08h or call $0FD9: A = index,
 # followed by an inline table of 16-bit targets
 # (0008: jp $0FD9 -> pop hl / add hl,a*2 / jp hl).  Never return.

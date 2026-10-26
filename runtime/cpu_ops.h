@@ -50,7 +50,9 @@ static inline bool irq_check(uint16_t pc)
     uint8_t pend = gb.ie & gb.io[IO_IF] & 0x1F;
     if (!R.ime || !pend)
         return false;
-    int bit = __builtin_ctz(pend);
+    int bit = 0;
+    while (!(pend & (1 << bit)))
+        bit++;
     gb.io[IO_IF] &= ~(1 << bit);
     R.ime = 0;
     push16(pc);
