@@ -6,6 +6,7 @@
 #include "pad.h"
 #include "files.h"
 #include "launcher.h"
+#include "mods.h"
 #include "recomp/recomp.h"
 
 uint32_t expected_rom_crc32(void) { return dk94_game.rom_crc32; }
@@ -40,6 +41,11 @@ static void usage(const char *argv0)
             "  --no-save           do not load or write the .sav file\n"
             "  --swap-ab           controller: B/X = A, A/Y = B (Nintendo button positions)\n"
             "  --sgb-bios FILE     Super Game Boy SNES ROM, enables SGB (SNES-side) sound\n"
+            "  --mod NAME          enable mod pack mods/NAME (repeat; first = highest priority)\n"
+            "  --no-mods           no mod packs\n"
+            "  --mods-dir DIR      mod packs folder (default: mods/ next to the executable)\n"
+            "  --dump DIR          dump tiles, border and audio requests for modding\n"
+            "  --dump-audio        with --dump: also record each song (original audio)\n"
             "  --frames N          exit after N frames\n"
             "  --input random:SEED deterministic pseudo-random input\n"
             "  --hash-log FILE     write a per-frame state hash\n"
@@ -60,6 +66,10 @@ int main(int argc, char **argv)
 
     const char *rom_path = NULL;
     bool want_launcher = argc == 1;
+    const char *mod_names[MODS_MAX_PACKS];
+    int n_mods = 0;
+    bool no_mods = false, dump_audio = false;
+    const char *mods_dir = NULL, *dump_dir = NULL;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool has_val = i + 1 < argc;
@@ -71,6 +81,11 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--swap-ab")) opt.swap_ab = true;
         else if (!strcmp(a, "--fullscreen")) opt.fullscreen = true;
         else if (!strcmp(a, "--launcher")) want_launcher = true;
+        else if (!strcmp(a, "--mod") && has_val) { if (n_mods < MODS_MAX_PACKS) mod_names[n_mods++] = argv[++i]; else i++; }
+        else if (!strcmp(a, "--no-mods")) no_mods = true;
+        else if (!strcmp(a, "--mods-dir") && has_val) mods_dir = argv[++i];
+        else if (!strcmp(a, "--dump") && has_val) dump_dir = argv[++i];
+        else if (!strcmp(a, "--dump-audio")) dump_audio = true;
         else if (!strcmp(a, "--sgb-bios") && has_val) opt.sgb_bios = argv[++i];
         else if (!strcmp(a, "--scale") && has_val) opt.scale = atoi(argv[++i]);
         else if (!strcmp(a, "--view") && has_val) {
@@ -94,11 +109,20 @@ int main(int argc, char **argv)
     char *found_rom = NULL;
     if (want_launcher && !opt.headless) {
         static char launch_rom[1024], launch_bios[1024];
+        launcher_mods_dir = mods_dir;
         if (!launcher_run(launch_rom, sizeof launch_rom, launch_bios, sizeof launch_bios))
             return 0;
         rom_path = launch_rom;
         opt.sgb_bios = launch_bios[0] ? launch_bios : NULL;
         opt.no_bios_search = true;
+        if (!n_mods && !no_mods)
+            for (int i = 0; i < launcher_mod_count && n_mods < MODS_MAX_PACKS; i++)
+                mod_names[n_mods++] = launcher_mods[i];
+        if (launcher_dump && !dump_dir) {
+            static char dd[800];
+            snprintf(dd, sizeof dd, "%s/_dump", mods_dir ? mods_dir : mods_default_dir());
+            dump_dir = dd;
+        }
     }
     if (!rom_path)
         rom_path = found_rom = find_default_rom();
@@ -155,6 +179,11 @@ int main(int argc, char **argv)
 #ifdef DK94_STATIC_CODE
     dispatch_set_code(gen_static_entries, gen_static_count);
 #endif
+    if (!no_mods && n_mods)
+        mods_load(mods_dir ? mods_dir : mods_default_dir(), mod_names, n_mods);
+    if (dump_dir)
+        moddump_start(dump_dir, dump_audio);
+    modaudio_watch = mods_have_audio() || moddump_active();
 #ifdef DK94_PLAYER
     if (!opt.interp_only && !native_load())
         fprintf(stderr, "note: recompilation failed - running on the interpreter\n");

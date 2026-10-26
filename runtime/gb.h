@@ -128,6 +128,7 @@ uint8_t apu_read(uint16_t addr);
 void apu_write(uint16_t addr, uint8_t v);
 size_t apu_take_samples(int16_t *out, size_t max_frames);
 int apu_sample_rate(void);
+void apu_set_mute_mask(uint8_t mask);   /* output only: channels 1-4 = bits 0-3 */
 
 /* sgb.c */
 void sgb_reset(void);
@@ -136,6 +137,13 @@ uint8_t sgb_p1_read_ids(void);
 void sgb_frame(void);
 void sgb_render(uint32_t *out256x224);
 void sgb_render_wide(uint32_t *out256x144);
+int sgb_mask_mode(void);
+uint32_t sgb_backdrop(void);
+uint32_t sgb_pixel_color(int cx, int cy, int shade);
+bool sgb_has_border(void);
+uint32_t sgb_border_color(int pal, int ci);
+uint16_t sgb_border_entry(int tx, int ty);
+const uint8_t *sgb_border_tile(int tile);
 bool sgb_active(void);
 
 /* sgb_sound.c: SNES-side sound (needs the SGB BIOS) */

@@ -19,4 +19,9 @@ char *find_default_rom(void);    /* malloc'd path or NULL */
 char *find_default_bios(void);   /* malloc'd path or NULL */
 const char *default_rom_name(void);
 
+/* directories (UTF-8 paths) */
+typedef void (*DirCallback)(const char *name, bool is_dir, void *user);
+bool dir_list(const char *dir, DirCallback cb, void *user);
+bool make_dirs(const char *path);
+
 #endif

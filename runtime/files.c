@@ -1,8 +1,15 @@
 /* File helpers shared by the game and the launcher: whole-file reads
  * through SDL_RWops (UTF-8 paths on every platform), ROM / BIOS
  * validation and the default file search. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>    /* before gb.h, whose R macro clashes with Windows headers */
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 #include <SDL.h>
 #include "files.h"
 #include "gb.h"
@@ -145,3 +152,68 @@ char *find_default_bios(void)
 }
 
 const char *default_rom_name(void) { return rom_names[0]; }
+
+/* ---- directories (UTF-8 paths) ---- */
+
+bool dir_list(const char *dir, DirCallback cb, void *user)
+{
+#ifdef _WIN32
+    wchar_t wpat[1100];
+    char pat[1100];
+    snprintf(pat, sizeof pat, "%s\\*", dir);
+    if (!MultiByteToWideChar(CP_UTF8, 0, pat, -1, wpat, 1100))
+        return false;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(wpat, &fd);
+    if (h == INVALID_HANDLE_VALUE)
+        return false;
+    do {
+        char name[600];
+        if (WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, name, sizeof name, NULL, NULL) &&
+            name[0] != '.')
+            cb(name, (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0, user);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return true;
+#else
+    DIR *d = opendir(dir);
+    if (!d)
+        return false;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (e->d_name[0] == '.')
+            continue;
+        char full[1200];
+        struct stat st;
+        snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+        if (stat(full, &st) == 0)
+            cb(e->d_name, S_ISDIR(st.st_mode), user);
+    }
+    closedir(d);
+    return true;
+#endif
+}
+
+/* mkdir -p */
+bool make_dirs(const char *path)
+{
+    char p[1200];
+    snprintf(p, sizeof p, "%s", path);
+    for (char *s = p + 1; ; s++) {
+        if (*s == '/' || *s == '\\' || !*s) {
+            char c = *s;
+            *s = 0;
+#ifdef _WIN32
+            wchar_t w[1200];
+            if (MultiByteToWideChar(CP_UTF8, 0, p, -1, w, 1200))
+                CreateDirectoryW(w, NULL);
+#else
+            mkdir(p, 0755);
+#endif
+            *s = c;
+            if (!c)
+                break;
+        }
+    }
+    return true;
+}

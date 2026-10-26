@@ -22,3 +22,11 @@ noreturn = []
 
 # Extra entry points the tracer cannot find on its own.
 entries = []
+
+# Sound driver interface, used by audio-replacement mods (found by tracing;
+# these are RAM addresses, not ROM data).
+[audio]
+music_request = 0xC836      # written by the game: 01-7F starts a song, 80 stops the music
+sfx_request = 0xC835        # written by the game: sound effect id
+sfx_channel_flags = 0xC849  # 4 bytes, channels 1-4: non-zero while an effect uses the channel
+pause_flag = 0xC838         # bit 7 set while the game is paused

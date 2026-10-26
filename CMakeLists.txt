@@ -45,8 +45,12 @@ add_executable(dk94
   runtime/main.c runtime/cpu.c runtime/mem.c runtime/ppu.c runtime/apu.c
   runtime/pad.c runtime/files.c runtime/launcher.c runtime/sgb.c runtime/sgb_sound.c
   runtime/spc.c runtime/dsp.c runtime/platform_sdl.c runtime/icon.c
+  runtime/mods.c runtime/hires.c runtime/modaudio.c runtime/moddump.c runtime/stb_impl.c
   ${RECOMP_SOURCES} ${GEN_DIR}/interp_ops.inc)
 target_include_directories(dk94 PRIVATE runtime runtime/recomp ${GEN_DIR})
+
+# third-party single-file libraries: compile quietly
+set_source_files_properties(runtime/stb_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
 if(DK94_PLAYER)
   # ---- TinyCC as a shared library (LGPL-2.1: kept dynamically linked) ----

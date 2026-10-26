@@ -152,12 +152,16 @@ static int chan_out(int c)
     return (k->lfsr & 1) ? 0 : k->vol;
 }
 
+static uint8_t mute_mask;
+
+void apu_set_mute_mask(uint8_t mask) { mute_mask = mask; }
+
 static void emit_sample(void)
 {
     float l = 0, r = 0;
     uint8_t pan = NR(0x25);
     for (int c = 0; c < 4; c++) {
-        if (!ch[c].dac)
+        if (!ch[c].dac || (mute_mask & (1 << c)))
             continue;
         float v = (chan_out(c) - 7.5f) / 7.5f;
         if (pan & (0x10 << c)) l += v;

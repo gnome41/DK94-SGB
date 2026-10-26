@@ -22,6 +22,7 @@
 #include "pad.h"
 #include "launcher.h"
 #include "font5x7.h"
+#include "mods.h"
 
 #define W 640
 #define H 360
@@ -41,6 +42,13 @@
 #define C_PLAY   0xFFC8342Cu
 
 static uint32_t canvas[W * H];
+
+char launcher_mods[16][128];
+int launcher_mod_count;
+bool launcher_dump;
+const char *launcher_mods_dir;
+
+static const char *mods_folder(void) { return launcher_mods_dir ? launcher_mods_dir : mods_default_dir(); }
 static SDL_Window *win;
 static SDL_Renderer *ren;
 static SDL_Texture *tex;
@@ -57,6 +65,9 @@ static struct {
     int save;        /* battery saves on */
     int interp;
     int uncapped;
+    char mods[MODS_MAX_PACKS][128];   /* enabled packs, highest priority first */
+    int nmods;
+    int dump;
 } cfg = { .save = 1 };
 
 static RomStatus rom_status;
@@ -110,6 +121,19 @@ static void load_settings(void)
         else if (!strcmp(k, "save")) cfg.save = iv != 0;
         else if (!strcmp(k, "interpreter")) cfg.interp = iv != 0;
         else if (!strcmp(k, "uncapped")) cfg.uncapped = iv != 0;
+        else if (!strcmp(k, "dump")) cfg.dump = iv != 0;
+        else if (!strcmp(k, "mods")) {
+            cfg.nmods = 0;
+            char list[2048];
+            snprintf(list, sizeof list, "%s", v);
+            for (char *m = list, *e; m && *m && cfg.nmods < MODS_MAX_PACKS; m = e) {
+                e = strchr(m, '|');
+                if (e)
+                    *e++ = 0;
+                if (*m)
+                    snprintf(cfg.mods[cfg.nmods++], sizeof cfg.mods[0], "%.127s", m);
+            }
+        }
     }
     free(text);
 }
@@ -119,12 +143,17 @@ static void save_settings(void)
     const char *p = config_path();
     if (!p)
         return;
-    char text[4096];
+    char text[8192], mods[2200] = "";
+    for (int i = 0; i < cfg.nmods; i++) {
+        if (i)
+            strcat(mods, "|");
+        strncat(mods, cfg.mods[i], 128);
+    }
     int n = snprintf(text, sizeof text,
                      "rom=%s\nbios=%s\nhardware=%d\nview=%d\nscale=%d\nfullscreen=%d\n"
-                     "swap_ab=%d\nsave=%d\ninterpreter=%d\nuncapped=%d\n",
+                     "swap_ab=%d\nsave=%d\ninterpreter=%d\nuncapped=%d\nmods=%s\ndump=%d\n",
                      cfg.rom, cfg.bios, cfg.hw, cfg.view, cfg.scale, cfg.fullscreen,
-                     cfg.swap_ab, cfg.save, cfg.interp, cfg.uncapped);
+                     cfg.swap_ab, cfg.save, cfg.interp, cfg.uncapped, mods, cfg.dump);
     if (n > 0 && !file_write(p, text, (size_t)n))
         fprintf(stderr, "warning: cannot save launcher settings to %s\n", p);
 }
@@ -220,7 +249,7 @@ static void text_fit(int x, int y, const char *s, uint32_t c, int max_chars)
 /* ------------------------------------------------------------ layout */
 
 enum {
-    IT_ROM, IT_BIOS,
+    IT_ROM, IT_BIOS, IT_MODS,
     IT_HW, IT_VIEW, IT_SCALE, IT_FULL, IT_LAYOUT, IT_SAVE, IT_CORE, IT_SPEED,
     IT_PLAY, IT_QUIT, IT_COUNT
 };
@@ -329,34 +358,53 @@ static void draw(void)
     } else {
         hint = "ALL FILES READY";
     }
-    text(16, 117, hint, rom_status != ROM_OK ? C_RED : C_DIM, 1);
+    /* mod packs */
+    {
+        int y = 118;
+        if (focus == IT_MODS)
+            fill(8, y - 4, W - 16, 22, C_FOCUS);
+        hit(8, y - 4, W - 16, 22, IT_MODS, ACT_FOCUS);
+        text(16, y + 3, "MOD PACKS", C_TEXT, 1);
+        char count[16], list[300] = "";
+        snprintf(count, sizeof count, "%d ON", cfg.nmods);
+        badge(96, y + 1, cfg.nmods ? count : "NONE", cfg.nmods ? C_GREEN : C_DIM);
+        for (int i = 0; i < cfg.nmods; i++) {
+            if (i)
+                strcat(list, ", ");
+            strncat(list, cfg.mods[i], 60);
+        }
+        text_fit(172, y + 3, cfg.nmods ? list : "(HD GRAPHICS / AUDIO PACKS - SEE MODDING.MD)",
+                 cfg.nmods ? C_TEXT : C_DIM, 58);
+        button(548, y - 1, 80, 15, "MANAGE...", IT_MODS, ACT_BROWSE, C_BUTTON, focus == IT_MODS);
+    }
+    text(16, 141, hint, rom_status != ROM_OK ? C_RED : C_DIM, 1);
 
     /* options */
-    text(16, 136, "OPTIONS", C_DIM, 1);
+    text(16, 154, "OPTIONS", C_DIM, 1);
     for (int i = IT_HW; i <= IT_SPEED; i++) {
         OptRow *o = opt_row(i);
-        int y = 148 + (i - IT_HW) * 15;
+        int y = 166 + (i - IT_HW) * 13;
         bool f = focus == i;
         if (f)
-            fill(8, y - 3, W - 16, 14, C_FOCUS);
-        hit(8, y - 3, W - 16, 14, i, ACT_FOCUS);
+            fill(8, y - 3, W - 16, 13, C_FOCUS);
+        hit(8, y - 3, W - 16, 13, i, ACT_FOCUS);
         text(16, y, o->label, C_TEXT, 1);
         const char *name = o->names[*o->value];
         int cx = 300;
         text(cx - 64, y, "\x01", f ? C_TITLE : C_DIM, 1);
         text(cx + 160, y, "\x02", f ? C_TITLE : C_DIM, 1);
         text(cx + 50 - text_w(name, 1) / 2, y, name, f ? C_TITLE : C_TEXT, 1);
-        hit(cx - 70, y - 3, 30, 14, i, ACT_PREV);
-        hit(cx - 40, y - 3, 220, 14, i, ACT_NEXT);
+        hit(cx - 70, y - 3, 30, 13, i, ACT_PREV);
+        hit(cx - 40, y - 3, 220, 13, i, ACT_NEXT);
     }
     OptRow *fo = opt_row(focus);
     if (fo)
-        text(16, 272, fo->help, C_DIM, 1);
+        text(16, 274, fo->help, C_DIM, 1);
 
     /* buttons */
-    button(196, 290, 120, 26, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
+    button(196, 292, 120, 24, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
            can_play() ? C_PLAY : C_BUTTON, focus == IT_PLAY);
-    button(332, 290, 112, 26, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
+    button(332, 292, 112, 24, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
 
     /* footer */
     fill(0, H - 30, W, 30, C_PANEL);
@@ -578,8 +626,14 @@ static void write_ppm(const char *path)
     fclose(f);
 }
 
+static void mods_screen(void);
+
 static void do_browse(int item)
 {
+    if (item == IT_MODS) {
+        mods_screen();
+        return;
+    }
     char path[PATH_MAX_LEN];
     if (browse(item == IT_ROM ? 1 : 2, path, sizeof path))
         accept_file(path, item == IT_ROM ? 1 : 2);
@@ -613,7 +667,7 @@ static int act(int item, int a)
 /* Enter / A on the focused item. */
 static int activate(void)
 {
-    if (focus == IT_ROM || focus == IT_BIOS)
+    if (focus == IT_ROM || focus == IT_BIOS || focus == IT_MODS)
         return act(focus, ACT_BROWSE);
     if (focus == IT_PLAY)
         return act(focus, ACT_PLAY);
@@ -648,6 +702,187 @@ static bool scripted_key(int frame, int *step)
     }
     *step = -1;
     return false;
+}
+
+static int script_frame, script_step;
+static bool script_shot_taken;
+
+/* One scripted key per call while DK94_LAUNCHER_KEYS is set. */
+static bool script_tick(void) { return scripted_key(script_frame++, &script_step); }
+
+/* ---- mod packs screen ---------------------------------------------------- */
+
+static ModInfo packs[32];
+static int npacks;
+static int order[32];       /* display order: enabled packs (by priority), then the rest */
+static bool on[32];
+
+static void mods_load_list(void)
+{
+    npacks = mods_scan(mods_folder(), packs, 32);
+    int n = 0;
+    bool used[32] = { false };
+    for (int m = 0; m < cfg.nmods; m++)
+        for (int i = 0; i < npacks; i++)
+            if (!used[i] && !strcmp(packs[i].dir, cfg.mods[m])) {
+                used[i] = on[n] = true;
+                order[n++] = i;
+            }
+    for (int i = 0; i < npacks; i++)
+        if (!used[i]) {
+            on[n] = false;
+            order[n++] = i;
+        }
+}
+
+static void mods_store_list(void)
+{
+    cfg.nmods = 0;
+    for (int k = 0; k < npacks && cfg.nmods < MODS_MAX_PACKS; k++)
+        if (on[k])
+            snprintf(cfg.mods[cfg.nmods++], sizeof cfg.mods[0], "%s", packs[order[k]].dir);
+}
+
+static void mods_move(int k, int d)
+{
+    int j = k + d;
+    if (j < 0 || j >= npacks || !on[k] || !on[j])
+        return;   /* priority applies among enabled packs */
+    int t = order[k]; order[k] = order[j]; order[j] = t;
+}
+
+static void draw_mods(int sel, int top, int rows)
+{
+    fill(0, 0, W, H, C_BG);
+    fill(0, 0, W, 30, C_PANEL);
+    text(16, 11, "MOD PACKS", C_TITLE, 2);
+    text_fit(150, 13, mods_folder(), C_DIM, 78);
+    if (!npacks) {
+        text(16, 50, "NO PACKS INSTALLED.", C_TEXT, 1);
+        text(16, 64, "PUT EACH PACK IN ITS OWN FOLDER INSIDE THE MODS FOLDER SHOWN ABOVE.", C_DIM, 1);
+        text(16, 76, "MODDING.MD EXPLAINS THE FORMAT; THE DUMP BELOW HELPS YOU MAKE ONE.", C_DIM, 1);
+    }
+    int prio = 0;
+    for (int k = 0; k < npacks; k++)
+        if (on[k] && k < top)
+            prio++;
+    for (int r = 0; r < rows && top + r < npacks; r++) {
+        int k = top + r, y = 44 + r * 24;
+        const ModInfo *m = &packs[order[k]];
+        if (k == sel)
+            fill(8, y - 4, W - 16, 22, C_FOCUS);
+        hit(8, y - 4, W - 16, 22, k, ACT_NEXT);
+        badge(16, y - 1, on[k] ? " ON" : "OFF", on[k] ? C_GREEN : C_DIM);
+        char line[200], detail[200];
+        if (on[k])
+            snprintf(line, sizeof line, "%d. %s", ++prio, m->name);
+        else
+            snprintf(line, sizeof line, "%s", m->name);
+        text_fit(52, y - 1, line, C_TEXT, 44);
+        snprintf(detail, sizeof detail, "%s%s  %dX  %d TILES%s  %d BORDER TILES  %d AUDIO",
+                 m->author[0] ? "BY " : "", m->author, m->scale ? m->scale : 0, m->tiles,
+                 m->border ? "  HD BORDER" : "", m->border_tiles, m->audio);
+        text_fit(52, y + 9, detail, C_DIM, 96);
+    }
+    int y = 44 + rows * 24 + 4;
+    int k = npacks;
+    if (sel == k)
+        fill(8, y - 4, W - 16, 16, C_FOCUS);
+    hit(8, y - 4, W - 16, 16, k, ACT_NEXT);
+    text(16, y, "DUMP FOR MODDING", C_TEXT, 1);
+    badge(130, y - 2, cfg.dump ? " ON" : "OFF", cfg.dump ? C_YELLOW : C_DIM);
+    text(170, y, "WRITES TILES, BORDER AND AUDIO LOG TO MODS/_DUMP WHILE YOU PLAY", C_DIM, 1);
+    button(W / 2 - 50, H - 58, 100, 20, "DONE", npacks + 1, ACT_PLAY, C_BUTTON, sel == npacks + 1);
+    if (sel < npacks && packs[order[sel]].description[0])
+        text_fit(16, H - 30, packs[order[sel]].description, C_TEXT, 102);
+    text(16, H - 16, "\x03\x04 SELECT  ENTER/A: ON-OFF  \x01\x02: PRIORITY  ESC/B: BACK", C_DIM, 1);
+}
+
+/* Enter / A / click on row k of the mods screen; returns true for DONE. */
+static bool mods_activate(int k, int *sel)
+{
+    if (k < npacks) {
+        /* turning a pack on puts it last among the enabled ones (lowest
+         * priority); turning it off moves it out of that group */
+        bool now = !on[k];
+        int t = order[k];
+        for (int i = k; i < npacks - 1; i++) { order[i] = order[i + 1]; on[i] = on[i + 1]; }
+        int pos = 0;
+        while (pos < npacks - 1 && on[pos]) pos++;
+        for (int i = npacks - 1; i > pos; i--) { order[i] = order[i - 1]; on[i] = on[i - 1]; }
+        order[pos] = t;
+        on[pos] = now;
+        *sel = pos;
+    } else if (k == npacks) {
+        cfg.dump = !cfg.dump;
+    } else {
+        return true;
+    }
+    return false;
+}
+
+static void mods_screen(void)
+{
+    mods_load_list();
+    int sel = 0, top = 0;
+    const int rows = 8;
+    uint8_t prev_pad = 0xFF;
+    for (bool done = false; !done;) {
+        bool script_running = script_tick();
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) {
+                done = true;
+            } else if (ev.type == SDL_KEYDOWN) {
+                switch (ev.key.keysym.sym) {
+                case SDLK_UP: sel--; break;
+                case SDLK_DOWN: sel++; break;
+                case SDLK_LEFT: mods_move(sel, -1); sel -= sel > 0 && sel < npacks && on[sel] && on[sel - 1]; break;
+                case SDLK_RIGHT:
+                    if (sel + 1 < npacks && on[sel] && on[sel + 1]) { mods_move(sel, 1); sel++; }
+                    break;
+                case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: done |= mods_activate(sel, &sel); break;
+                case SDLK_ESCAPE: case SDLK_BACKSPACE: done = true; break;
+                }
+            } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                for (int i = nhits - 1; i >= 0; i--)
+                    if (ev.button.x >= hits[i].x && ev.button.x < hits[i].x + hits[i].w &&
+                        ev.button.y >= hits[i].y && ev.button.y < hits[i].y + hits[i].h) {
+                        sel = hits[i].item;
+                        done |= mods_activate(sel, &sel);
+                        break;
+                    }
+            } else if (ev.type == SDL_MOUSEWHEEL) {
+                sel -= ev.wheel.y;
+            } else if (ev.type == SDL_CONTROLLERDEVICEADDED || ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+                pad_event(&ev);
+            }
+        }
+        uint8_t p = pad_poll().buttons, pressed = p & ~prev_pad;
+        prev_pad = p;
+        if (pressed & 0x04) sel--;
+        if (pressed & 0x08) sel++;
+        if (pressed & 0x02) { mods_move(sel, -1); }
+        if (pressed & 0x01) { mods_move(sel, 1); }
+        if (pressed & 0x10) done |= mods_activate(sel, &sel);
+        if (pressed & 0x20) done = true;
+        if (sel < 0) sel = 0;
+        if (sel > npacks + 1) sel = npacks + 1;
+        if (sel < top) top = sel;
+        if (sel < npacks && sel >= top + rows) top = sel - rows + 1;
+        nhits = 0;
+        draw_mods(sel, top, rows);
+        present();
+        if (getenv("DK94_LAUNCHER_KEYS") && !script_running) {
+            if (getenv("DK94_LAUNCHER_SHOT"))
+                write_ppm(getenv("DK94_LAUNCHER_SHOT"));
+            script_shot_taken = true;
+            done = true;
+        }
+        SDL_Delay(16);
+    }
+    mods_store_list();
+    nhits = 0;
 }
 
 bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
@@ -698,11 +933,11 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
     pad_init(base);
     SDL_free(base);
 
-    int result = 0, frame = 0, step = 0;
+    int result = 0;
     uint8_t prev_pad = 0;
     bool scripted = getenv("DK94_LAUNCHER_KEYS") != NULL;
     while (!result) {
-        bool script_running = scripted_key(frame++, &step);
+        bool script_running = script_tick();
         SDL_Event ev;
         while (!result && SDL_PollEvent(&ev)) {
             switch (ev.type) {
@@ -778,7 +1013,7 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
         draw();
         present();
         if (scripted && !script_running && !result) {
-            if (getenv("DK94_LAUNCHER_SHOT"))
+            if (getenv("DK94_LAUNCHER_SHOT") && !script_shot_taken)
                 write_ppm(getenv("DK94_LAUNCHER_SHOT"));
             if (!getenv("DK94_LAUNCHER_STAY"))
                 result = -1;
@@ -803,6 +1038,10 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
         opt.interp_only = cfg.interp;
         opt.unthrottled = cfg.uncapped;
         snprintf(rom, rom_size, "%s", cfg.rom);
+        launcher_mod_count = cfg.nmods;
+        for (int i = 0; i < cfg.nmods; i++)
+            snprintf(launcher_mods[i], sizeof launcher_mods[i], "%s", cfg.mods[i]);
+        launcher_dump = cfg.dump;
         snprintf(bios, bios_size, "%s", opt.sgb && bios_status == BIOS_OK ? cfg.bios : "");
     }
     SDL_DestroyTexture(tex);

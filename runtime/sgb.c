@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gb.h"
+#include "mods.h"
 
 enum {
     PAL01 = 0x00, PAL23, PAL03, PAL12, ATTR_BLK, ATTR_LIN, ATTR_DIV, ATTR_CHR,
@@ -188,7 +189,10 @@ static void execute(void)
     case ATTR_DIV: cmd_attr_div(); break;
     case ATTR_CHR: cmd_attr_chr(); break;
     case PAL_SET: cmd_pal_set(); break;
-    case SOUND: sgb_sound_command(s.cmd); break;
+    case SOUND:
+        sgb_sound_command(s.cmd);
+        modaudio_on_sgb_sound(s.cmd);
+        break;
     case MLT_REQ:
         s.players = (s.cmd[1] & 3) == 3 ? 4 : (s.cmd[1] & 3) + 1;
         if (s.players == 3)
@@ -377,3 +381,21 @@ void sgb_render_wide(uint32_t *out)
             out[y * WIDE_W + x] = c;
         }
 }
+
+/* ---- accessors for the HD compositor (hires.c) ---- */
+
+int sgb_mask_mode(void) { return s.mask; }
+uint32_t sgb_backdrop(void) { return rgb(s.pal[0][0]); }
+
+/* Colour of a GB pixel with the given shade in attribute cell (cx, cy). */
+uint32_t sgb_pixel_color(int cx, int cy, int shade)
+{
+    cx = cx < 0 ? 0 : cx > 19 ? 19 : cx;
+    cy = cy < 0 ? 0 : cy > 17 ? 17 : cy;
+    return rgb(shade ? s.pal[s.attr[cy][cx]][shade] : s.pal[0][0]);
+}
+
+bool sgb_has_border(void) { return s.has_border; }
+uint32_t sgb_border_color(int pal, int ci) { return rgb(s.border_pal[pal & 3][ci & 15]); }
+uint16_t sgb_border_entry(int tx, int ty) { return s.border_map[ty * 32 + tx]; }
+const uint8_t *sgb_border_tile(int tile) { return s.border_tiles + (tile & 0xFF) * 32; }

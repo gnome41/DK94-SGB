@@ -43,9 +43,13 @@ Controls
   fast-fwd    Tab (hold)                  RB or RT (hold)
   view        F10                         LB
   fullscreen  F11                         Guide
+  mods        F9
   quit        Esc
 
 Battery saves are written next to the ROM (.sav).
+
+Mods: put mod packs in the mods/ folder and enable them in the launcher
+(MOD PACKS > MANAGE...). F9 toggles them in game. See MODDING.md.
 
 Command line: dk94 --help (any option skips the launcher).
 

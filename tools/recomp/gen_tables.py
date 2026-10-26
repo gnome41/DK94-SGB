@@ -165,6 +165,7 @@ def gen_game_data(cfg, coverage):
     far = cfg.get("far_tables", [])
     cov = sorted(set(coverage))
     crc = int(str(cfg["rom_crc32"]), 0) if "rom_crc32" in cfg else 0
+    audio = cfg.get("audio", {})
     out = [HEADER, '#include "recomp.h"\n\n',
            u16_list("jump_table_routines", cfg.get("jump_table_routines", [])),
            u16_list("bank_switch_routines", cfg.get("bank_switch_routines", [])),
@@ -182,6 +183,10 @@ def gen_game_data(cfg, coverage):
            f"    extra_entries, {len(entries)},\n",
            f"    far_tables, {len(far)},\n",
            f"    coverage, {len(cov)},\n",
+           "};\n\n",
+           "const GameAudioNotes dk94_audio = {\n",
+           "".join(f"    {int(audio.get(k, 0)):#06x},\n" for k in
+                   ("music_request", "sfx_request", "sfx_channel_flags", "pause_flag")),
            "};\n"]
     return "".join(out)
 

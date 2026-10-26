@@ -20,6 +20,7 @@
 #include "gb.h"
 #include "files.h"
 #include "snes_apu.h"
+#include "mods.h"
 
 static bool enabled;
 static uint8_t vars[4];   /* BIOS $0340-$0343: next values for ports 0-3 */
@@ -219,6 +220,7 @@ void sgb_sound_mix(int16_t *buf, size_t n, int rate)
 {
     if (!enabled || !rate)
         return;
+    bool muted = modaudio_sgb_muted();   /* a mod replaces the current SNES sound */
     double step = (double)DSP_RATE / rate;
     for (size_t i = 0; i < n; i++) {
         rs_pos += step;
@@ -234,7 +236,7 @@ void sgb_sound_mix(int16_t *buf, size_t n, int rate)
         }
         for (int ch = 0; ch < 2; ch++) {
             double v = rs_prev[ch] + (rs_cur[ch] - rs_prev[ch]) * rs_pos;
-            int m = buf[i * 2 + ch] + (int)(v * 0.5);
+            int m = buf[i * 2 + ch] + (muted ? 0 : (int)(v * 0.5));
             buf[i * 2 + ch] = m < -32768 ? -32768 : m > 32767 ? 32767 : m;
         }
     }

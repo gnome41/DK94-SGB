@@ -4,6 +4,8 @@
 #include <string.h>
 #include "gb.h"
 #include "files.h"
+#include "mods.h"
+#include "recomp/recomp.h"
 
 Gb gb;
 
@@ -219,6 +221,8 @@ void mem_write(uint16_t a, uint8_t v)
     }
     if (a < 0xE000) {
         gb.wram[a - 0xC000] = v;
+        if (modaudio_watch && (a == dk94_audio.music_request || a == dk94_audio.sfx_request))
+            modaudio_on_write(a, v);   /* output-only: replacement audio */
         return;
     }
     if (a < 0xFE00) {

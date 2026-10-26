@@ -55,6 +55,13 @@ launcher:
 Passing any command-line option skips the launcher (add `--launcher` to
 show it anyway).
 
+### Mods
+
+HD graphics packs (tiles, sprites, backgrounds, SGB border) and music /
+sound-effect replacements, several at once, managed in the launcher under
+**MOD PACKS** (F9 toggles them in game). A dump tool extracts the game's
+tiles, border and audio requests to start from. See [MODDING.md](MODDING.md).
+
 ### Super Game Boy sound (optional)
 
 On a Super Game Boy, this game also plays sounds on the SNES side. That
@@ -115,6 +122,7 @@ ninja -C build
 | Fast-forward (hold) | Tab | RB or RT |
 | Cycle display view | F10 | LB |
 | Fullscreen | F11 | Guide |
+| Mods on / off | F9 | – |
 | Quit | Esc | – |
 
 Any number of controllers can be used at once and plugged in or out while
@@ -151,7 +159,7 @@ at the original screen edge, and untested stages may still show glitches
 at the sides; switch to `frame` if they do. All views are render-only: the
 emulation is identical in every view.
 
-Options: `--launcher`, `--fullscreen`, `--dmg` (plain Game Boy, no SGB border/colours), `--scale N`, `--view MODE` (`wide` is experimental), `--swap-ab`,
+Options: `--mod NAME`, `--mods-dir DIR`, `--no-mods`, `--dump DIR`, `--dump-audio`, `--launcher`, `--fullscreen`, `--dmg` (plain Game Boy, no SGB border/colours), `--scale N`, `--view MODE` (`wide` is experimental), `--swap-ab`,
 `--interp`, `--headless`, `--unthrottled`, `--frames N`, `--no-save`,
 `--sgb-bios FILE`, `--input random:SEED`, `--hash-log FILE`, `--log-fallback FILE`,
 `--screenshot FILE`, `--wav FILE`. See `dk94 --help`.
@@ -238,7 +246,8 @@ Debugging aids (environment variables): `DK94_TRACE=file` /
 `DK94_POKE="frame:addr=val,...;..."`, `DK94_HOLD="from-to:buttons;..."`,
 `DK94_DUMP_VRAM=file`, `DK94_WIDE_NOMASK=1`, `DK94_SGB_LOG=1`, `DK94_SPC_LOG=1`,
 `DK94_DEBUG=1`, `DK94_LAUNCHER_CONFIG=file`, `DK94_LAUNCHER_KEYS=down,right,enter,...`,
-`DK94_LAUNCHER_SHOT=file`. The current level index is at WRAM `$C85C`.
+`DK94_LAUNCHER_SHOT=file`, `DK94_RAMLOG=C000-C0FF`, `DK94_SGB_SOUND="frame:a,b,attr,score"`,
+`DK94_PROFILE=1`. The current level index is at WRAM `$C85C`.
 
 ## Legal
 
@@ -261,7 +270,12 @@ Debugging aids (environment variables): `DK94_TRACE=file` /
   covers only the source in this repository, not the game ROM, the Super
   Game Boy BIOS or any code generated from them. SDL2 is zlib-licensed.
   TinyCC is LGPL-2.1; the player uses it as a separate, unmodified shared
-  library, and releases include its license and source.
+  library, and releases include its license and source. The vendored stb
+  libraries (`runtime/third_party/`, image and Ogg Vorbis decoding) are
+  public domain / MIT.
+* **Mods.** The project ships no mod content. The dump tool writes the
+  game's own graphics and sound from the user's ROM for local use; packs
+  that are shared should contain original work only (see MODDING.md).
 
 ## Releases
 

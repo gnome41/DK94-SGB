@@ -31,8 +31,10 @@ fi
 SDL2_MINGW_DIR=${SDL2_MINGW_DIR:-$ROOT/third_party/sdl2-mingw/SDL2-2.32.10}
 
 stage_common() {   # $1 = staging dir
-    mkdir -p "$1/licenses" "$1/source"
+    mkdir -p "$1/licenses" "$1/source" "$1/mods"
     sed "s/@VERSION@/$VERSION/" "$ROOT/tools/release/README.txt" > "$1/README.txt"
+    cp "$ROOT/MODDING.md" "$1/MODDING.md"
+    printf 'Put mod packs here, one folder per pack. See MODDING.md.\n' > "$1/mods/README.txt"
     cp "$ROOT/LICENSE" "$1/LICENSE.txt"
     cp "$TINYCC_DIR/COPYING" "$1/licenses/TinyCC-COPYING.txt"
     cp "$CACHE/$TCC_TAR" "$1/source/"

@@ -41,6 +41,16 @@ typedef struct {
 
 extern const RecompConfig dk94_game;
 
+/* sound driver interface (RAM addresses), for audio-replacement mods */
+typedef struct {
+    uint16_t music_request;      /* 01-7F: start song, 80: stop */
+    uint16_t sfx_request;
+    uint16_t sfx_channel_flags;  /* 4 bytes, non-zero while an effect uses channel 1-4 */
+    uint16_t pause_flag;         /* bit 7 while paused */
+} GameAudioNotes;
+
+extern const GameAudioNotes dk94_audio;
+
 /* ---- results ---- */
 
 typedef struct {

@@ -6,6 +6,7 @@
 #include <SDL.h>
 #include "gb.h"
 #include "pad.h"
+#include "mods.h"
 
 #define SAMPLE_RATE 48000
 
@@ -229,15 +230,14 @@ static void compose_view(uint32_t *out, int *w, int *h)
     }
 }
 
+static void ensure_texture(int w, int h);
+
 /* (Re)creates the texture for the current view and resizes the window to
  * an integer multiple of it, unless fullscreen. */
 static void apply_view(void)
 {
     view_size(opt.view, &tex_w, &tex_h);
-    if (texture)
-        SDL_DestroyTexture(texture);
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                tex_w, tex_h);
+    ensure_texture(tex_w, tex_h);
     SDL_RenderSetLogicalSize(renderer, tex_w, tex_h);
     if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
         int scale = opt.scale > 0 ? opt.scale : (672 + tex_h / 2) / tex_h;
@@ -259,25 +259,56 @@ static void toggle_fullscreen(void)
         apply_view();   /* restore the window size for the current view */
 }
 
+/* The frame for the current view: native size, or the mods' HD scale. */
+static const uint32_t *compose_output(int *w, int *h, int max_scale)
+{
+    compose_view(pixels, w, h);
+    uint32_t *hd;
+    int hw, hh;
+    if (hires_compose(opt.view, pixels, *w, *h, max_scale, &hd, &hw, &hh)) {
+        *w = hw;
+        *h = hh;
+        return hd;
+    }
+    return pixels;
+}
+
 static void write_screenshot(const char *path)
 {
     FILE *f = fopen(path, "wb");
     if (!f)
         return;
     int w, h;
-    compose_view(pixels, &w, &h);
+    const uint32_t *px = compose_output(&w, &h, 0);   /* full pack scale */
     fprintf(f, "P6\n%d %d\n255\n", w, h);
     for (int i = 0; i < w * h; i++) {
-        uint8_t rgb[3] = { pixels[i] >> 16, pixels[i] >> 8, pixels[i] };
+        uint8_t rgb[3] = { px[i] >> 16, px[i] >> 8, px[i] };
         fwrite(rgb, 1, 3, f);
     }
     fclose(f);
+}
+
+/* Matches the texture to the output size (HD packs give a larger one than
+ * the logical view size; it is then scaled smoothly). */
+static int tex_px_w, tex_px_h;
+
+static void ensure_texture(int w, int h)
+{
+    if (texture && w == tex_px_w && h == tex_px_h)
+        return;
+    if (texture)
+        SDL_DestroyTexture(texture);
+    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+    SDL_SetTextureScaleMode(texture, w > tex_w ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+    tex_px_w = w;
+    tex_px_h = h;
 }
 
 void platform_shutdown(void)
 {
     if (opt.screenshot)
         write_screenshot(opt.screenshot);
+    moddump_finish();
     if (getenv("DK94_DUMP_VRAM")) {   /* debugging aid: VRAM + IO registers */
         FILE *f = fopen(getenv("DK94_DUMP_VRAM"), "wb");
         if (f) {
@@ -363,6 +394,11 @@ bool platform_init(void)
         return false;
     }
     SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
+    if (getenv("DK94_DEBUG")) {
+        SDL_RendererInfo ri;
+        if (SDL_GetRendererInfo(renderer, &ri) == 0)
+            fprintf(stderr, "renderer: %s%s\n", ri.name, (ri.flags & SDL_RENDERER_ACCELERATED) ? " (accelerated)" : " (software)");
+    }
     apply_view();
     if (opt.fullscreen)
         SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -406,6 +442,8 @@ static void poll_events(void)
                 quit();
             } else if (e.key.keysym.sym == SDLK_F11 && e.type == SDL_KEYDOWN && !e.key.repeat) {
                 toggle_fullscreen();
+            } else if (e.key.keysym.sym == SDLK_F9 && e.type == SDL_KEYDOWN && !e.key.repeat) {
+                mods_toggle();   /* compare with / without mods */
             } else if (e.key.keysym.sym == SDLK_F10 && e.type == SDL_KEYDOWN && !e.key.repeat) {
                 cycle_view();
             } else if (e.key.keysym.sym == SDLK_TAB) {
@@ -454,6 +492,19 @@ void platform_frame(void)
     }
     if (scripted)
         scripted_input();
+    /* DK94_RAMLOG="C000-C0FF" - debugging aid: logs a memory range each frame */
+    static const char *ramlog = (const char *)-1;
+    if (ramlog == (const char *)-1)
+        ramlog = getenv("DK94_RAMLOG");
+    if (ramlog) {
+        unsigned lo = 0, hi = 0;
+        if (sscanf(ramlog, "%x-%x", &lo, &hi) == 2 && hi >= lo && hi <= 0xFFFF) {
+            fprintf(stderr, "ram %llu", (unsigned long long)gb.frame_count);
+            for (unsigned a = lo; a <= hi; a++)
+                fprintf(stderr, " %02X", mem_read((uint16_t)a));
+            fprintf(stderr, "\n");
+        }
+    }
     /* DK94_HOLD="from-to:mask[;...]" - debugging aid forcing the buttons
      * (bit order as gb.buttons) for a range of frames */
     static const char *hold = (const char *)-1;
@@ -471,10 +522,14 @@ void platform_frame(void)
             gb.buttons[0] = (uint8_t)mask;
         p = *end == ';' ? end + 1 : end;
     }
+    moddump_frame();
+    modaudio_frame();
     if (wav_file) {
         int16_t buf[4096 * 2];
         size_t n = apu_take_samples(buf, 4096);
         sgb_sound_mix(buf, n, SAMPLE_RATE);
+        moddump_audio_samples(buf, n);
+        modaudio_mix(buf, n, SAMPLE_RATE);
         fwrite(buf, 4, n, wav_file);
         wav_frames += n;
     }
@@ -485,13 +540,38 @@ void platform_frame(void)
         return;
     }
 
-    int w, h;
-    compose_view(pixels, &w, &h);
+    /* HD packs: compose no larger than the window shows */
+    int dw = 0, dh = 0;
+    SDL_GetRendererOutputSize(renderer, &dw, &dh);
+    int w, h, need = tex_h > 0 ? (dh + tex_h - 1) / tex_h : 0;
+    uint64_t p0 = SDL_GetPerformanceCounter();
+    const uint32_t *px = compose_output(&w, &h, need > 0 ? need : 1);
     wide_has_content = false;
-    SDL_UpdateTexture(texture, NULL, pixels, w * 4);
+    uint64_t p1 = SDL_GetPerformanceCounter();
+    ensure_texture(w, h);
+    SDL_UpdateTexture(texture, NULL, px, w * 4);
+    uint64_t p2 = SDL_GetPerformanceCounter();
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
+    uint64_t p3 = SDL_GetPerformanceCounter();
+    static int prof = -1;
+    static double t_comp, t_up, t_pres;
+    static int nprof;
+    if (prof < 0)
+        prof = getenv("DK94_PROFILE") != NULL;
+    if (prof) {
+        double f = (double)SDL_GetPerformanceFrequency() / 1000.0;
+        t_comp += (p1 - p0) / f;
+        t_up += (p2 - p1) / f;
+        t_pres += (p3 - p2) / f;
+        if (++nprof == 120) {
+            fprintf(stderr, "profile: %dx%d  compose %.2f ms  upload %.2f ms  present %.2f ms\n",
+                    w, h, t_comp / nprof, t_up / nprof, t_pres / nprof);
+            t_comp = t_up = t_pres = 0;
+            nprof = 0;
+        }
+    }
     poll_events();
     PadInput pad = pad_poll();
     if (!scripted)
@@ -505,6 +585,8 @@ void platform_frame(void)
     int16_t buf[4096 * 2];
     size_t n = apu_take_samples(buf, 4096);
     sgb_sound_mix(buf, n, SAMPLE_RATE);
+    moddump_audio_samples(buf, n);
+    modaudio_mix(buf, n, SAMPLE_RATE);
     if (audio) {
         /* keep latency bounded: drop audio if more than ~100 ms is queued */
         if (SDL_GetQueuedAudioSize(audio) < SAMPLE_RATE / 10 * 4 && !opt.unthrottled)

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gb.h"
+#include "hires.h"
 
 uint8_t ppu_shades[144][160];
 uint8_t ppu_wide[144][WIDE_W];
@@ -58,12 +59,17 @@ static unsigned bg_tile_addr(uint8_t idx)
 /* Renders screen columns x0 .. x0+w-1 of line ly into out[0..w-1].  The
  * normal view is x0 = 0, w = 160; the widescreen view extends the same
  * line to either side (x0 < 0, w > 160) using identical register state. */
-static void render_span(int ly, int x0, int w, int wy, bool window_on, uint8_t *out)
+static void render_span(int ly, int x0, int w, int wy, bool window_on, uint8_t *out, PixRef *refs)
 {
     uint8_t bgidx[WIDE_W];
     uint8_t bgp = gb.io[IO_BGP];
+    unsigned last_ta = 0;
+    uint16_t inst = NO_INST;
 
     memset(bgidx, 0, sizeof bgidx);
+    if (refs)
+        for (int i = 0; i < w; i++)
+            refs[i] = (PixRef){ .bg = NO_INST, .sp = NO_INST };
     if (LCDC & 0x01) {
         unsigned map = (LCDC & 0x08) ? 0x9C00 : 0x9800;
         int y = (ly + gb.io[IO_SCY]) & 0xFF;
@@ -77,9 +83,18 @@ static void render_span(int ly, int x0, int w, int wy, bool window_on, uint8_t *
              * that would show the far end of the level */
             if ((raw < 0 || raw > 255) && (x0 + i < 0 || x0 + i >= 160) && !no_mask)
                 continue;
-            bgidx[i] = tile_pixel(bg_tile_addr(gb.vram[ma - 0x8000]), sx & 7, y & 7);
+            unsigned ta = bg_tile_addr(gb.vram[ma - 0x8000]);
+            bgidx[i] = tile_pixel(ta, sx & 7, y & 7);
             if (bgidx[i] && (x0 + i < 0 || x0 + i >= 160))
                 wide_has_content = true;
+            if (refs) {
+                if (ta != last_ta || inst == NO_INST) {
+                    inst = hires_instance(&gb.vram[ta - 0x8000], bgp, 0);
+                    last_ta = ta;
+                }
+                refs[i].bg = inst;
+                refs[i].bg_sub = (uint8_t)((sx & 7) | ((y & 7) << 3));
+            }
         }
         if (window_on) {
             int wx = gb.io[IO_WX] - 7;
@@ -89,14 +104,30 @@ static void render_span(int ly, int x0, int w, int wy, bool window_on, uint8_t *
                 unsigned ma = wmap + (wy / 8) * 32 + (px / 8 & 31);
                 if (!map_valid(ma, x)) {
                     bgidx[x - x0] = 0;
+                    if (refs)
+                        refs[x - x0].bg = NO_INST;
                     continue;
                 }
-                bgidx[x - x0] = tile_pixel(bg_tile_addr(gb.vram[ma - 0x8000]), px & 7, wy & 7);
+                unsigned ta = bg_tile_addr(gb.vram[ma - 0x8000]);
+                bgidx[x - x0] = tile_pixel(ta, px & 7, wy & 7);
+                if (refs) {
+                    if (ta != last_ta || inst == NO_INST) {
+                        inst = hires_instance(&gb.vram[ta - 0x8000], bgp, 0);
+                        last_ta = ta;
+                    }
+                    refs[x - x0].bg = inst;
+                    refs[x - x0].bg_sub = (uint8_t)((px & 7) | ((wy & 7) << 3));
+                }
             }
         }
     }
     for (int i = 0; i < w; i++)
         out[i] = (bgp >> (bgidx[i] * 2)) & 3;
+    if (refs)
+        for (int i = 0; i < w; i++) {
+            refs[i].bg_idx = bgidx[i];
+            refs[i].bg_shade = out[i];
+        }
 
     if (!(LCDC & 0x02))
         return;
@@ -127,14 +158,30 @@ static void render_span(int ly, int x0, int w, int wy, bool window_on, uint8_t *
             tile &= 0xFE;
         unsigned addr = 0x8000 + tile * 16 + (row >= 8 ? 16 : 0);
         uint8_t pal = (attr & 0x10) ? gb.io[IO_OBP1] : gb.io[IO_OBP0];
+        uint16_t sinst = refs ? hires_instance(&gb.vram[addr - 0x8000], pal, 1) : NO_INST;
         for (int px = 0; px < 8; px++) {
             int x = sx + px;
             if (x < x0 || x >= x0 + w)
                 continue;
-            uint8_t c = tile_pixel(addr, (attr & 0x20) ? 7 - px : px, row & 7);
-            if (!c)
-                continue;
-            if ((attr & 0x80) && bgidx[x - x0])
+            int tx = (attr & 0x20) ? 7 - px : px;
+            uint8_t c = tile_pixel(addr, tx, row & 7);
+            bool drawn = c && !((attr & 0x80) && bgidx[x - x0]);
+            if (refs) {
+                /* the sprite covering this pixel: an opaque, drawn one wins;
+                 * otherwise the highest-priority sprite whose box covers it
+                 * (so HD art may extend beyond the original silhouette) */
+                PixRef *r = &refs[x - x0];
+                if (drawn || !(r->sp != NO_INST && (r->sp_flags & SPF_DRAWN))) {
+                    r->sp = sinst;
+                    r->sp_sub = (uint8_t)(tx | ((row & 7) << 3));
+                    r->sp_idx = c;
+                    r->sp_shade = (pal >> (c * 2)) & 3;
+                    r->sp_flags = ((attr & 0x20) ? SPF_XFLIP : 0) | ((attr & 0x40) ? SPF_YFLIP : 0) |
+                                  ((attr & 0x80) ? SPF_BEHIND : 0) | (drawn ? SPF_DRAWN : 0) |
+                                  ((attr & 0x10) ? SPF_OBP1 : 0);
+                }
+            }
+            if (!drawn)
                 continue;
             out[x - x0] = (pal >> (c * 2)) & 3;
             if (x < 0 || x >= 160)
@@ -151,9 +198,10 @@ static void render_line(int ly)
     bool window_on = (LCDC & 0x01) && (LCDC & 0x20) && ly >= gb.io[IO_WY] &&
                      wx < 160 && gb.io[IO_WX] <= 166;
     int wy = gb.window_line;
-    render_span(ly, 0, 160, wy, window_on, ppu_shades[ly]);
+    bool cap = hires_capture_active();
+    render_span(ly, 0, 160, wy, window_on, ppu_shades[ly], cap ? hires_refs[ly] : NULL);
     if (opt.view == VIEW_WIDE)
-        render_span(ly, -WIDE_EXTRA, WIDE_W, wy, window_on, ppu_wide[ly]);
+        render_span(ly, -WIDE_EXTRA, WIDE_W, wy, window_on, ppu_wide[ly], cap ? hires_refs_wide[ly] : NULL);
     if (window_on)
         gb.window_line++;
 }
@@ -185,6 +233,7 @@ void ppu_tick(int n)
         if (gb.lcd_off_cycles >= CYCLES_PER_FRAME) {
             gb.lcd_off_cycles -= CYCLES_PER_FRAME;
             platform_frame();
+            hires_frame_done();
         }
         return;
     }
@@ -204,6 +253,7 @@ void ppu_tick(int n)
                     gb.io[IO_IF] |= INT_VBLANK;
                     update_stat_line();
                     platform_frame();
+                    hires_frame_done();
                     continue;
                 }
                 set_mode(2);
