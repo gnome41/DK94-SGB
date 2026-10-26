@@ -18,4 +18,6 @@ PadInput pad_poll(void);
 int pad_count(void);
 int pad_selftest(void);
 
+void set_window_icon(SDL_Window *window);   /* icon.c */
+
 #endif

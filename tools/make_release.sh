@@ -49,6 +49,8 @@ S=$DIST/stage/$NAME
 rm -rf "$S" && mkdir -p "$S"
 cp "$B/dk94" "$B/libtcc.so" "$S/"
 strip "$S/dk94" "$S/libtcc.so"
+cp "$ROOT/assets/icon/dk94-256.png" "$S/dk94.png"
+cp "$ROOT/tools/release/install-desktop-entry.sh" "$S/"
 stage_common "$S"
 PACKAGES="$PACKAGES linux:$S"
 

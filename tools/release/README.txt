@@ -25,6 +25,8 @@ Running
 Windows: run dk94.exe. Keep libtcc.dll and SDL2.dll next to it.
 Linux:   run ./dk94. Keep libtcc.so next to it. Needs SDL2 from your
          distribution (e.g. Debian/Ubuntu: libsdl2-2.0-0) and glibc 2.34+.
+         ./install-desktop-entry.sh adds it (with its icon) to your
+         application menu.
 
 The launcher opens. Put the ROM (and BIOS) next to the program or choose
 them with Browse... / drag and drop; the launcher checks them, then press

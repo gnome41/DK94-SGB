@@ -44,7 +44,7 @@ set(RECOMP_SOURCES runtime/recomp/recomp.c ${GEN_DIR}/sm83_table.c ${GEN_DIR}/ga
 add_executable(dk94
   runtime/main.c runtime/cpu.c runtime/mem.c runtime/ppu.c runtime/apu.c
   runtime/pad.c runtime/files.c runtime/launcher.c runtime/sgb.c runtime/sgb_sound.c
-  runtime/spc.c runtime/dsp.c runtime/platform_sdl.c
+  runtime/spc.c runtime/dsp.c runtime/platform_sdl.c runtime/icon.c
   ${RECOMP_SOURCES} ${GEN_DIR}/interp_ops.inc)
 target_include_directories(dk94 PRIVATE runtime runtime/recomp ${GEN_DIR})
 
@@ -125,6 +125,10 @@ if(WIN32 AND TARGET SDL2::SDL2)
 endif()
 if(WIN32)
   target_link_libraries(dk94 PRIVATE comdlg32)
+  # executable icon
+  enable_language(RC)
+  file(WRITE ${CMAKE_BINARY_DIR}/dk94.rc "1 ICON \"${CMAKE_SOURCE_DIR}/assets/icon/dk94.ico\"\n")
+  target_sources(dk94 PRIVATE ${CMAKE_BINARY_DIR}/dk94.rc)
 endif()
 if(MINGW)
   target_link_options(dk94 PRIVATE -static-libgcc)

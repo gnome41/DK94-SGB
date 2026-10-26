@@ -354,6 +354,7 @@ bool platform_init(void)
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return false;
     }
+    set_window_icon(window);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer)
         renderer = SDL_CreateRenderer(window, -1, 0);
