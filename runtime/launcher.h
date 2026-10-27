@@ -17,5 +17,6 @@ extern const char *launcher_mods_dir;   /* --mods-dir, or NULL for the default *
 /* code lists of the cheats switched on in the launcher */
 extern char launcher_cheats[64][192];
 extern int launcher_cheat_count;
+extern int launcher_stage;              /* start stage for new games, 0 = normal */
 
 #endif

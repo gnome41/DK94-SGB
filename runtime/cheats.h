@@ -32,7 +32,15 @@ int cheats_builtin(Cheat *out, int max);
 bool cheats_add(const char *codes);
 bool cheats_active(void);         /* codes loaded and not toggled off */
 void cheats_toggle(void);         /* F8 */
-void cheats_frame(void);          /* VBlank: GameShark writes */
+void cheats_frame(void);          /* VBlank: GameShark writes, start stage */
+
+/* Stage select: stages 0..stage_count()-1 in play order (0-1 ... 9-9);
+ * new games start at the chosen one (0 = normal). */
+int stage_count(void);
+void stage_label(int i, char *buf, size_t size);   /* "5-3 DESERT" */
+int stage_find(const char *ws);                    /* "W-S" -> stage, or -1 */
+int stage_next_world(int stage, int dir);          /* first stage of the next / previous world */
+void cheats_start_at(int stage);
 
 /* Dispatcher: ROM bytes changed by Game Genie codes, so it can leave the
  * recompiled functions containing them to the interpreter.  Returns the

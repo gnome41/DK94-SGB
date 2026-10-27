@@ -48,6 +48,7 @@ static void usage(const char *argv0)
             "  --dump DIR          dump tiles, border and audio requests for modding\n"
             "  --dump-audio        with --dump: also record each song (original audio)\n"
             "  --cheat CODES       GameShark (010443DA) or Game Genie (ABC-DEF[-GHI]) code(s) (repeat)\n"
+            "  --stage W-S         start new games at stage W-S (0-1 ... 9-9)\n"
             "  --frames N          exit after N frames\n"
             "  --input random:SEED deterministic pseudo-random input\n"
             "  --hash-log FILE     write a per-frame state hash\n"
@@ -74,7 +75,7 @@ int main(int argc, char **argv)
     bool no_mods = false, dump_audio = false;
     const char *mods_dir = NULL, *dump_dir = NULL;
     const char *cheat_codes[CHEATS_MAX];
-    int n_cheats = 0;
+    int n_cheats = 0, start_stage = -1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool has_val = i + 1 < argc;
@@ -91,6 +92,12 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--mods-dir") && has_val) mods_dir = argv[++i];
         else if (!strcmp(a, "--dump") && has_val) dump_dir = argv[++i];
         else if (!strcmp(a, "--dump-audio")) dump_audio = true;
+        else if (!strcmp(a, "--stage") && has_val) {
+            if ((start_stage = stage_find(argv[++i])) < 0) {
+                fprintf(stderr, "unknown stage '%s' (0-1 ... 9-9)\n", argv[i]);
+                return 2;
+            }
+        }
         else if (!strcmp(a, "--cheat") && has_val) { if (n_cheats < CHEATS_MAX) cheat_codes[n_cheats++] = argv[++i]; else i++; }
         else if (!strcmp(a, "--sgb-bios") && has_val) opt.sgb_bios = argv[++i];
         else if (!strcmp(a, "--scale") && has_val) opt.scale = atoi(argv[++i]);
@@ -124,6 +131,8 @@ int main(int argc, char **argv)
         if (!n_mods && !no_mods)
             for (int i = 0; i < launcher_mod_count && n_mods < MODS_MAX_PACKS; i++)
                 mod_names[n_mods++] = launcher_mods[i];
+        if (start_stage < 0)
+            start_stage = launcher_stage;
         if (!n_cheats)
             for (int i = 0; i < launcher_cheat_count && n_cheats < CHEATS_MAX; i++)
                 cheat_codes[n_cheats++] = launcher_cheats[i];
@@ -202,6 +211,12 @@ int main(int argc, char **argv)
         cheats_add(cheat_codes[i]);
     if (n_cheats)
         fprintf(stderr, "cheats: %d on (F8 toggles)\n", n_cheats);
+    if (start_stage > 0) {
+        char label[40];
+        stage_label(start_stage, label, sizeof label);
+        fprintf(stderr, "new games start at stage %s\n", label);
+        cheats_start_at(start_stage);
+    }
     cpu_reset();
     run_forever();
     return 0;

@@ -178,8 +178,100 @@ void cheats_toggle(void)
     fprintf(stderr, "cheats %s\n", enabled ? "on" : "off");
 }
 
+/* ---- start stage ---- */
+
+/* The game's progress is a position in a script of scenes (C85C, 16 bits;
+ * the script is at 0C:4F97, two bytes per scene, type 2 = a stage).  A new
+ * game starts at 0 (opening cut-scene) and steps to 1 (stage 0-1);
+ * replacing that step with a stage's position starts the game there.
+ * Positions of the stages in play order - the labels match the game's
+ * own map screens. */
+static const uint16_t stage_pos[] = {
+    0x001, 0x004, 0x007, 0x00A, 0x00E, 0x011, 0x014, 0x017, 0x01B, 0x01E, 0x021, 0x024,
+    0x028, 0x02B, 0x02E, 0x031, 0x035, 0x038, 0x03B, 0x03E, 0x042, 0x045, 0x048, 0x04B,
+    0x04F, 0x052, 0x055, 0x058, 0x05C, 0x05F, 0x062, 0x065, 0x069, 0x06C, 0x06F, 0x072,
+    0x076, 0x079, 0x07C, 0x07F, 0x083, 0x086, 0x089, 0x08C, 0x090, 0x093, 0x096, 0x099,
+    0x09D, 0x0A0, 0x0A3, 0x0A6, 0x0AA, 0x0AD, 0x0B0, 0x0B3, 0x0B7, 0x0BA, 0x0BD, 0x0C0,
+    0x0C4, 0x0C7, 0x0CA, 0x0CD, 0x0D1, 0x0D4, 0x0D7, 0x0DA, 0x0DE, 0x0E1, 0x0E4, 0x0E7,
+    0x0EB, 0x0EE, 0x0F1, 0x0F4, 0x0F8, 0x0FB, 0x0FE, 0x101, 0x105, 0x108, 0x10B, 0x10E,
+    0x112, 0x115, 0x118, 0x11B, 0x11F, 0x122, 0x125, 0x128, 0x12C, 0x12F, 0x132, 0x135,
+    0x139, 0x13C, 0x13F, 0x142, 0x146,
+};
+static const uint8_t world_size[] = { 4, 8, 12, 8, 12, 12, 8, 12, 16, 9 };
+static const char *const world_name[] = {
+    "ARCADE", "BIG-CITY", "FOREST", "SHIP", "JUNGLE", "DESERT", "AIRPLANE", "ICEBERG",
+    "ROCKY-VALLEY", "TOWER",
+};
+static int start_pos = -1;
+
+int stage_count(void) { return (int)(sizeof stage_pos / sizeof *stage_pos); }
+
+static void stage_world(int i, int *w, int *n)
+{
+    *w = 0;
+    while (i >= world_size[*w])
+        i -= world_size[(*w)++];
+    *n = i + 1;
+}
+
+void stage_label(int i, char *buf, size_t size)
+{
+    int w, n;
+    stage_world(i, &w, &n);
+    snprintf(buf, size, "%d-%d %s", w, n, world_name[w]);
+}
+
+int stage_find(const char *ws)
+{
+    int w, n;
+    if (sscanf(ws, "%d-%d", &w, &n) != 2)
+        return -1;
+    for (int i = 0; i < stage_count(); i++) {
+        int sw, sn;
+        stage_world(i, &sw, &sn);
+        if (sw == w && sn == n)
+            return i;
+    }
+    return -1;
+}
+
+int stage_next_world(int stage, int dir)
+{
+    int w, n, first = 0;
+    stage_world(stage, &w, &n);
+    if (dir < 0 && n == 1)
+        w--;                  /* from a world's first stage back to the previous world */
+    else if (dir > 0)
+        w++;
+    if (w < 0)
+        return 0;
+    if (w >= (int)sizeof world_size)
+        return stage_count() - 1;
+    for (int i = 0; i < w; i++)
+        first += world_size[i];
+    return first;
+}
+
+void cheats_start_at(int stage)
+{
+    start_pos = stage > 0 && stage < stage_count() ? stage_pos[stage] : -1;
+}
+
+static void start_frame(void)
+{
+    static uint16_t prev = 0xFFFF;
+    uint16_t cur = (uint16_t)(gb.wram[0x085C] | gb.wram[0x085D] << 8);
+    if (start_pos > 1 && prev == 0 && cur == 1) {
+        gb.wram[0x085C] = (uint8_t)start_pos;
+        gb.wram[0x085D] = (uint8_t)(start_pos >> 8);
+        cur = (uint16_t)start_pos;
+    }
+    prev = cur;
+}
+
 void cheats_frame(void)
 {
+    start_frame();
     if (!enabled)
         return;
     for (size_t i = 0; i < n_ram; i++)

@@ -84,6 +84,19 @@ line; several codes with spaces or `+`).
   run on the interpreter instead, which reads the patched ROM; the result
   is checked against the interpreter-only mode (identical state hashes).
 
+### Stage select
+
+**START STAGE** in the launcher (or `--stage W-S`) starts new games at any
+of the 101 stages, from 0-1 (the original arcade game) to 9-9; Page Up /
+Down moves a world at a time. Continuing a saved game is unchanged, and the
+game saves progress from the chosen stage as usual.
+
+The game's progress is a position in a script of scenes (`$C85C`; the
+script is at `0C:4F97`); a new game steps from the opening cut-scene
+(position 0) to stage 0-1 (position 1), and the stage select replaces that
+step with the chosen stage's position. The labels match the game's own map
+screens for all worlds.
+
 ### Super Game Boy sound (optional)
 
 On a Super Game Boy, this game also plays sounds on the SNES side. That
@@ -182,7 +195,7 @@ at the original screen edge, and untested stages may still show glitches
 at the sides; switch to `frame` if they do. All views are render-only: the
 emulation is identical in every view.
 
-Options: `--cheat CODE`, `--mod NAME`, `--mods-dir DIR`, `--no-mods`, `--dump DIR`, `--dump-audio`, `--launcher`, `--fullscreen`, `--dmg` (plain Game Boy, no SGB border/colours), `--scale N`, `--view MODE` (`wide` is experimental), `--swap-ab`,
+Options: `--stage W-S`, `--cheat CODE`, `--mod NAME`, `--mods-dir DIR`, `--no-mods`, `--dump DIR`, `--dump-audio`, `--launcher`, `--fullscreen`, `--dmg` (plain Game Boy, no SGB border/colours), `--scale N`, `--view MODE` (`wide` is experimental), `--swap-ab`,
 `--interp`, `--headless`, `--unthrottled`, `--frames N`, `--no-save`,
 `--sgb-bios FILE`, `--input random:SEED`, `--hash-log FILE`, `--log-fallback FILE`,
 `--screenshot FILE`, `--wav FILE`. See `dk94 --help`.

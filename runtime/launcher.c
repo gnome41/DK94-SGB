@@ -50,6 +50,7 @@ bool launcher_dump;
 const char *launcher_mods_dir;
 char launcher_cheats[64][192];
 int launcher_cheat_count;
+int launcher_stage;
 
 static const char *mods_folder(void) { return launcher_mods_dir ? launcher_mods_dir : mods_default_dir(); }
 static SDL_Window *win;
@@ -71,6 +72,7 @@ static struct {
     char mods[MODS_MAX_PACKS][128];   /* enabled packs, highest priority first */
     int nmods;
     int dump;
+    int stage;       /* start stage for new games (0 = 0-1, normal) */
 } cfg = { .save = 1 };
 
 static RomStatus rom_status;
@@ -151,6 +153,7 @@ static void load_settings(void)
         else if (!strcmp(k, "interpreter")) cfg.interp = iv != 0;
         else if (!strcmp(k, "uncapped")) cfg.uncapped = iv != 0;
         else if (!strcmp(k, "dump")) cfg.dump = iv != 0;
+        else if (!strcmp(k, "stage")) cfg.stage = iv >= 0 && iv < stage_count() ? iv : 0;
         else if (!strcmp(k, "mods")) {
             cfg.nmods = 0;
             char list[2048];
@@ -180,9 +183,9 @@ static void save_settings(void)
     }
     int n = snprintf(text, sizeof text,
                      "rom=%s\nbios=%s\nhardware=%d\nview=%d\nscale=%d\nfullscreen=%d\n"
-                     "swap_ab=%d\nsave=%d\ninterpreter=%d\nuncapped=%d\nmods=%s\ndump=%d\n",
+                     "swap_ab=%d\nsave=%d\ninterpreter=%d\nuncapped=%d\nmods=%s\ndump=%d\nstage=%d\n",
                      cfg.rom, cfg.bios, cfg.hw, cfg.view, cfg.scale, cfg.fullscreen,
-                     cfg.swap_ab, cfg.save, cfg.interp, cfg.uncapped, mods, cfg.dump);
+                     cfg.swap_ab, cfg.save, cfg.interp, cfg.uncapped, mods, cfg.dump, cfg.stage);
     if (n > 0 && !file_write(p, text, (size_t)n))
         fprintf(stderr, "warning: cannot save launcher settings to %s\n", p);
 }
@@ -279,7 +282,7 @@ static void text_fit(int x, int y, const char *s, uint32_t c, int max_chars)
 
 enum {
     IT_ROM, IT_BIOS, IT_MODS, IT_CHEATS,
-    IT_HW, IT_VIEW, IT_SCALE, IT_FULL, IT_LAYOUT, IT_SAVE, IT_CORE, IT_SPEED,
+    IT_HW, IT_VIEW, IT_SCALE, IT_FULL, IT_LAYOUT, IT_SAVE, IT_CORE, IT_SPEED, IT_STAGE,
     IT_PLAY, IT_QUIT, IT_COUNT
 };
 enum { ACT_FOCUS, ACT_BROWSE, ACT_CLEAR, ACT_PREV, ACT_NEXT, ACT_PLAY, ACT_QUIT };
@@ -301,7 +304,17 @@ typedef struct {
     int count;
     const char *names[9];
     const char *help;
+    const char *(*name_of)(int value);   /* instead of names, for long lists */
 } OptRow;
+
+static const char *stage_name(int v)
+{
+    static char buf[48];
+    stage_label(v, buf, sizeof buf);
+    if (v == 0)
+        strcat(buf, " (NORMAL)");
+    return buf;
+}
 
 static OptRow opts[] = {
     { "HARDWARE", &cfg.hw, 2, { "SUPER GAME BOY", "GAME BOY" },
@@ -318,9 +331,12 @@ static OptRow opts[] = {
       "THE INTERPRETER IS THE SLOWER REFERENCE IMPLEMENTATION, FOR TESTING." },
     { "SPEED", &cfg.uncapped, 2, { "NORMAL", "UNCAPPED" },
       "UNCAPPED RUNS AS FAST AS POSSIBLE WITHOUT SOUND. TAB / RB FAST-FORWARDS IN GAME." },
+    { "START STAGE", &cfg.stage, 1, { 0 },
+      "NEW GAMES START AT THIS STAGE (AFTER THE OPENING). PAGE UP / DOWN: A WORLD AT A TIME.",
+      stage_name },
 };
 
-static OptRow *opt_row(int item) { return item >= IT_HW && item <= IT_SPEED ? &opts[item - IT_HW] : NULL; }
+static OptRow *opt_row(int item) { return item >= IT_HW && item <= IT_STAGE ? &opts[item - IT_HW] : NULL; }
 
 static bool can_play(void) { return rom_status == ROM_OK; }
 
@@ -430,30 +446,30 @@ static void draw(void)
 
     /* options */
     text(16, 180, "OPTIONS", C_DIM, 1);
-    for (int i = IT_HW; i <= IT_SPEED; i++) {
+    for (int i = IT_HW; i <= IT_STAGE; i++) {
         OptRow *o = opt_row(i);
-        int y = 192 + (i - IT_HW) * 13;
+        int y = 192 + (i - IT_HW) * 12;
         bool f = focus == i;
         if (f)
-            fill(8, y - 3, W - 16, 13, C_FOCUS);
-        hit(8, y - 3, W - 16, 13, i, ACT_FOCUS);
+            fill(8, y - 3, W - 16, 12, C_FOCUS);
+        hit(8, y - 3, W - 16, 12, i, ACT_FOCUS);
         text(16, y, o->label, C_TEXT, 1);
-        const char *name = o->names[*o->value];
+        const char *name = o->name_of ? o->name_of(*o->value) : o->names[*o->value];
         int cx = 300;
         text(cx - 64, y, "\x01", f ? C_TITLE : C_DIM, 1);
         text(cx + 160, y, "\x02", f ? C_TITLE : C_DIM, 1);
         text(cx + 50 - text_w(name, 1) / 2, y, name, f ? C_TITLE : C_TEXT, 1);
-        hit(cx - 70, y - 3, 30, 13, i, ACT_PREV);
-        hit(cx - 40, y - 3, 220, 13, i, ACT_NEXT);
+        hit(cx - 70, y - 3, 30, 12, i, ACT_PREV);
+        hit(cx - 40, y - 3, 220, 12, i, ACT_NEXT);
     }
     OptRow *fo = opt_row(focus);
     if (fo)
-        text(16, 288, fo->help, C_DIM, 1);
+        text(16, 298, fo->help, C_DIM, 1);
 
     /* buttons */
-    button(196, 302, 120, 22, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
+    button(196, 308, 120, 19, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
            can_play() ? C_PLAY : C_BUTTON, focus == IT_PLAY);
-    button(332, 302, 112, 22, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
+    button(332, 308, 112, 19, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
 
     /* footer */
     fill(0, H - 30, W, 30, C_PANEL);
@@ -757,6 +773,7 @@ static bool scripted_key(int frame, int *step)
                          : !strcmp(k, "left") ? SDLK_LEFT : !strcmp(k, "right") ? SDLK_RIGHT
                          : !strcmp(k, "enter") ? SDLK_RETURN : !strcmp(k, "delete") ? SDLK_DELETE
                          : !strcmp(k, "esc") ? SDLK_ESCAPE : !strcmp(k, "backspace") ? SDLK_BACKSPACE
+                         : !strcmp(k, "pageup") ? SDLK_PAGEUP : !strcmp(k, "pagedown") ? SDLK_PAGEDOWN
                          : SDLK_UNKNOWN;
         SDL_Event ev = { 0 };
         ev.type = SDL_KEYDOWN;
@@ -1140,6 +1157,7 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
     set_rom(cfg.rom);
     set_bios(cfg.bios);
     ncheats = cheats_file_load(cheats_path(), cheats, CHEATS_MAX);
+    opt_row(IT_STAGE)->count = stage_count();
     if (rom_status == ROM_OK)
         set_message(C_GREEN, "ROM FOUND AND VERIFIED - PRESS PLAY");
     else
@@ -1189,6 +1207,10 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
                     else if (focus == IT_PLAY) focus = IT_QUIT;
                     break;
                 case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: result = activate(); break;
+                case SDLK_PAGEUP: case SDLK_PAGEDOWN:   /* start stage: a world at a time */
+                    if (focus == IT_STAGE)
+                        cfg.stage = stage_next_world(cfg.stage, ev.key.keysym.sym == SDLK_PAGEDOWN ? 1 : -1);
+                    break;
                 case SDLK_DELETE: case SDLK_BACKSPACE:
                     if (focus == IT_BIOS) act(IT_BIOS, ACT_CLEAR);
                     break;
@@ -1274,6 +1296,7 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
         for (int i = 0; i < cfg.nmods; i++)
             snprintf(launcher_mods[i], sizeof launcher_mods[i], "%s", cfg.mods[i]);
         launcher_dump = cfg.dump;
+        launcher_stage = cfg.stage;
         launcher_cheat_count = 0;
         for (int i = 0; i < ncheats; i++)
             if (cheats[i].on)

@@ -58,6 +58,9 @@ Cheats: GameShark (01VVLLHH) and Game Genie (ABC-DEF-GHI) codes, under
 CHEATS > MANAGE... in the launcher. Infinite lives and a timer freeze are
 built in. F8 toggles cheats in game.
 
+Stage select: START STAGE in the launcher starts new games at any stage,
+0-1 to 9-9 (Page Up / Down: a world at a time).
+
 Command line: dk94 --help (any option skips the launcher).
 
 Licenses
