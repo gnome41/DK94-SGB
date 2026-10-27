@@ -9,7 +9,9 @@
  * instruction at a time. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "cpu_ops.h"
+#include "cheats.h"
 
 void cpu_reset(void)
 {
@@ -171,13 +173,41 @@ void dispatch_set_code(const GenEntry *entries, size_t count)
     code_count = count;
 }
 
+/* Leaves the recompiled functions that contain a byte changed by a Game
+ * Genie code to the interpreter: their instructions are compiled in.  An
+ * instruction covering the byte starts at most 2 bytes before it; dropping
+ * an extra function is harmless (the interpreter is exact, only slower). */
+static void drop_patched_code(void)
+{
+    const uint8_t *bank;
+    const uint16_t *addr;
+    size_t n = cheats_rom_patches(&bank, &addr), dropped = 0;
+    for (size_t i = 0; i < n; i++) {
+        size_t base = addr[i] < 0x4000 ? 0 : (size_t)bank[i] * 0x4000;
+        unsigned lo = addr[i] < 0x4000 ? 0 : 0x4000;
+        for (unsigned back = 0; back <= 2 && addr[i] >= lo + back; back++) {
+            GenFn fn = fn_table[base + (addr[i] - back - lo)];
+            if (!fn)
+                continue;
+            for (size_t j = base; j < base + 0x4000; j++)
+                if (fn_table[j] == fn)
+                    fn_table[j] = NULL;
+            dropped++;
+        }
+    }
+    if (dropped)
+        fprintf(stderr, "cheats: %zu recompiled functions run on the interpreter\n", dropped);
+}
+
 static void build_table(void)
 {
-    fn_table = calloc((size_t)gb.rom_banks * 0x4000, sizeof *fn_table);
+    if (!fn_table)
+        fn_table = malloc((size_t)gb.rom_banks * 0x4000 * sizeof *fn_table);
     if (!fn_table) {
         fprintf(stderr, "out of memory\n");
         exit(1);
     }
+    memset(fn_table, 0, (size_t)gb.rom_banks * 0x4000 * sizeof *fn_table);
     for (size_t i = 0; i < code_count; i++) {
         const GenEntry *e = &code_entries[i];
         if (e->bank >= gb.rom_banks)
@@ -186,6 +216,8 @@ static void build_table(void)
         if (!fn_table[idx])
             fn_table[idx] = e->fn;
     }
+    drop_patched_code();
+    dispatch_dirty = false;
 }
 
 void run_forever(void)
@@ -193,6 +225,8 @@ void run_forever(void)
     if (!opt.interp_only && code_count)
         build_table();
     for (;;) {
+        if (dispatch_dirty && fn_table)
+            build_table();
         uint16_t pc = R.pc;
         GenFn fn = NULL;
         if (fn_table && pc < 0x8000)

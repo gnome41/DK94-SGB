@@ -7,6 +7,7 @@
 #include "files.h"
 #include "launcher.h"
 #include "mods.h"
+#include "cheats.h"
 #include "recomp/recomp.h"
 
 uint32_t expected_rom_crc32(void) { return dk94_game.rom_crc32; }
@@ -46,6 +47,7 @@ static void usage(const char *argv0)
             "  --mods-dir DIR      mod packs folder (default: mods/ next to the executable)\n"
             "  --dump DIR          dump tiles, border and audio requests for modding\n"
             "  --dump-audio        with --dump: also record each song (original audio)\n"
+            "  --cheat CODES       GameShark (010443DA) or Game Genie (ABC-DEF[-GHI]) code(s) (repeat)\n"
             "  --frames N          exit after N frames\n"
             "  --input random:SEED deterministic pseudo-random input\n"
             "  --hash-log FILE     write a per-frame state hash\n"
@@ -55,7 +57,8 @@ static void usage(const char *argv0)
             "controls: arrows, X = A, Z = B, Enter = Start, RShift/Backspace = Select,\n"
             "          Tab = fast-forward, F10 = cycle view, F11 = fullscreen, Esc = quit\n"
             "controller: D-pad/left stick, A/Y = A, B/X = B, Start, Back = Select,\n"
-            "          RB/RT = fast-forward, LB = cycle view, Guide = fullscreen\n",
+            "          RB/RT = fast-forward, LB = cycle view, Guide = fullscreen\n"
+            "          F8 = cheats on/off, F9 = mods on/off\n",
             argv0);
 }
 
@@ -70,6 +73,8 @@ int main(int argc, char **argv)
     int n_mods = 0;
     bool no_mods = false, dump_audio = false;
     const char *mods_dir = NULL, *dump_dir = NULL;
+    const char *cheat_codes[CHEATS_MAX];
+    int n_cheats = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool has_val = i + 1 < argc;
@@ -86,6 +91,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--mods-dir") && has_val) mods_dir = argv[++i];
         else if (!strcmp(a, "--dump") && has_val) dump_dir = argv[++i];
         else if (!strcmp(a, "--dump-audio")) dump_audio = true;
+        else if (!strcmp(a, "--cheat") && has_val) { if (n_cheats < CHEATS_MAX) cheat_codes[n_cheats++] = argv[++i]; else i++; }
         else if (!strcmp(a, "--sgb-bios") && has_val) opt.sgb_bios = argv[++i];
         else if (!strcmp(a, "--scale") && has_val) opt.scale = atoi(argv[++i]);
         else if (!strcmp(a, "--view") && has_val) {
@@ -118,6 +124,9 @@ int main(int argc, char **argv)
         if (!n_mods && !no_mods)
             for (int i = 0; i < launcher_mod_count && n_mods < MODS_MAX_PACKS; i++)
                 mod_names[n_mods++] = launcher_mods[i];
+        if (!n_cheats)
+            for (int i = 0; i < launcher_cheat_count && n_cheats < CHEATS_MAX; i++)
+                cheat_codes[n_cheats++] = launcher_cheats[i];
         if (launcher_dump && !dump_dir) {
             static char dd[800];
             snprintf(dd, sizeof dd, "%s/_dump", mods_dir ? mods_dir : mods_default_dir());
@@ -188,6 +197,11 @@ int main(int argc, char **argv)
     if (!opt.interp_only && !native_load())
         fprintf(stderr, "note: recompilation failed - running on the interpreter\n");
 #endif
+    /* after recompiling: the recompiler reads the original ROM */
+    for (int i = 0; i < n_cheats; i++)
+        cheats_add(cheat_codes[i]);
+    if (n_cheats)
+        fprintf(stderr, "cheats: %d on (F8 toggles)\n", n_cheats);
     cpu_reset();
     run_forever();
     return 0;

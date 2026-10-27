@@ -7,6 +7,7 @@
 #include "gb.h"
 #include "pad.h"
 #include "mods.h"
+#include "cheats.h"
 
 #define SAMPLE_RATE 48000
 
@@ -444,6 +445,8 @@ static void poll_events(void)
                 toggle_fullscreen();
             } else if (e.key.keysym.sym == SDLK_F9 && e.type == SDL_KEYDOWN && !e.key.repeat) {
                 mods_toggle();   /* compare with / without mods */
+            } else if (e.key.keysym.sym == SDLK_F8 && e.type == SDL_KEYDOWN && !e.key.repeat) {
+                cheats_toggle();
             } else if (e.key.keysym.sym == SDLK_F10 && e.type == SDL_KEYDOWN && !e.key.repeat) {
                 cycle_view();
             } else if (e.key.keysym.sym == SDLK_TAB) {
@@ -522,6 +525,7 @@ void platform_frame(void)
             gb.buttons[0] = (uint8_t)mask;
         p = *end == ';' ? end + 1 : end;
     }
+    cheats_frame();
     moddump_frame();
     modaudio_frame();
     if (wav_file) {

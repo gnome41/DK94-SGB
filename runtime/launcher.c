@@ -23,6 +23,7 @@
 #include "launcher.h"
 #include "font5x7.h"
 #include "mods.h"
+#include "cheats.h"
 
 #define W 640
 #define H 360
@@ -47,6 +48,8 @@ char launcher_mods[16][128];
 int launcher_mod_count;
 bool launcher_dump;
 const char *launcher_mods_dir;
+char launcher_cheats[64][192];
+int launcher_cheat_count;
 
 static const char *mods_folder(void) { return launcher_mods_dir ? launcher_mods_dir : mods_default_dir(); }
 static SDL_Window *win;
@@ -89,6 +92,32 @@ static const char *config_path(void)
         SDL_free(pref);
     }
     return path;
+}
+
+/* cheats.txt in the same folder as the settings */
+static const char *cheats_path(void)
+{
+    static char path[PATH_MAX_LEN];
+    const char *c = config_path();
+    if (!c)
+        return NULL;
+    snprintf(path, sizeof path, "%s", c);
+    char *slash = strrchr(path, '/'), *bslash = strrchr(path, '\\');
+    if (bslash > slash)
+        slash = bslash;
+    snprintf(slash ? slash + 1 : path, sizeof path - (size_t)(slash ? slash + 1 - path : 0), "cheats.txt");
+    return path;
+}
+
+static Cheat cheats[CHEATS_MAX];
+static int ncheats;
+
+static int cheats_on(void)
+{
+    int n = 0;
+    for (int i = 0; i < ncheats; i++)
+        n += cheats[i].on;
+    return n;
 }
 
 static void load_settings(void)
@@ -249,7 +278,7 @@ static void text_fit(int x, int y, const char *s, uint32_t c, int max_chars)
 /* ------------------------------------------------------------ layout */
 
 enum {
-    IT_ROM, IT_BIOS, IT_MODS,
+    IT_ROM, IT_BIOS, IT_MODS, IT_CHEATS,
     IT_HW, IT_VIEW, IT_SCALE, IT_FULL, IT_LAYOUT, IT_SAVE, IT_CORE, IT_SPEED,
     IT_PLAY, IT_QUIT, IT_COUNT
 };
@@ -377,13 +406,33 @@ static void draw(void)
                  cfg.nmods ? C_TEXT : C_DIM, 58);
         button(548, y - 1, 80, 15, "MANAGE...", IT_MODS, ACT_BROWSE, C_BUTTON, focus == IT_MODS);
     }
-    text(16, 141, hint, rom_status != ROM_OK ? C_RED : C_DIM, 1);
+    /* cheats */
+    {
+        int y = 144;
+        if (focus == IT_CHEATS)
+            fill(8, y - 4, W - 16, 22, C_FOCUS);
+        hit(8, y - 4, W - 16, 22, IT_CHEATS, ACT_FOCUS);
+        text(16, y + 3, "CHEATS", C_TEXT, 1);
+        int on = cheats_on();
+        char count[16], list[300] = "";
+        snprintf(count, sizeof count, "%d ON", on);
+        badge(96, y + 1, on ? count : "OFF", on ? C_YELLOW : C_DIM);
+        for (int i = 0; i < ncheats; i++)
+            if (cheats[i].on) {
+                if (list[0])
+                    strcat(list, ", ");
+                strncat(list, cheats[i].name, 60);
+            }
+        text_fit(172, y + 3, on ? list : "(GAMESHARK / GAME GENIE CODES)", on ? C_TEXT : C_DIM, 58);
+        button(548, y - 1, 80, 15, "MANAGE...", IT_CHEATS, ACT_BROWSE, C_BUTTON, focus == IT_CHEATS);
+    }
+    text(16, 167, hint, rom_status != ROM_OK ? C_RED : C_DIM, 1);
 
     /* options */
-    text(16, 154, "OPTIONS", C_DIM, 1);
+    text(16, 180, "OPTIONS", C_DIM, 1);
     for (int i = IT_HW; i <= IT_SPEED; i++) {
         OptRow *o = opt_row(i);
-        int y = 166 + (i - IT_HW) * 13;
+        int y = 192 + (i - IT_HW) * 13;
         bool f = focus == i;
         if (f)
             fill(8, y - 3, W - 16, 13, C_FOCUS);
@@ -399,12 +448,12 @@ static void draw(void)
     }
     OptRow *fo = opt_row(focus);
     if (fo)
-        text(16, 274, fo->help, C_DIM, 1);
+        text(16, 288, fo->help, C_DIM, 1);
 
     /* buttons */
-    button(196, 292, 120, 24, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
+    button(196, 302, 120, 22, can_play() ? "PLAY" : "PLAY (NEED ROM)", IT_PLAY, ACT_PLAY,
            can_play() ? C_PLAY : C_BUTTON, focus == IT_PLAY);
-    button(332, 292, 112, 24, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
+    button(332, 302, 112, 22, "QUIT", IT_QUIT, ACT_QUIT, C_BUTTON, focus == IT_QUIT);
 
     /* footer */
     fill(0, H - 30, W, 30, C_PANEL);
@@ -627,11 +676,16 @@ static void write_ppm(const char *path)
 }
 
 static void mods_screen(void);
+static void cheats_screen(void);
 
 static void do_browse(int item)
 {
     if (item == IT_MODS) {
         mods_screen();
+        return;
+    }
+    if (item == IT_CHEATS) {
+        cheats_screen();
         return;
     }
     char path[PATH_MAX_LEN];
@@ -667,7 +721,7 @@ static int act(int item, int a)
 /* Enter / A on the focused item. */
 static int activate(void)
 {
-    if (focus == IT_ROM || focus == IT_BIOS || focus == IT_MODS)
+    if (focus == IT_ROM || focus == IT_BIOS || focus == IT_MODS || focus == IT_CHEATS)
         return act(focus, ACT_BROWSE);
     if (focus == IT_PLAY)
         return act(focus, ACT_PLAY);
@@ -675,6 +729,8 @@ static int activate(void)
         return act(focus, ACT_QUIT);
     return act(focus, ACT_NEXT);
 }
+
+static char script_text[64];   /* "text:" entries of the script, typed into the cheats screen */
 
 /* DK94_LAUNCHER_KEYS="down,right,enter,...": scripted key presses, one per
  * frame (testing aid).  Returns false when the script has finished. */
@@ -689,10 +745,19 @@ static bool scripted_key(int frame, int *step)
     for (char *k = strtok(buf, ","); k; k = strtok(NULL, ","), i++) {
         if (i != *step)
             continue;
+        if (!strncmp(k, "text:", 5)) {   /* typed text, '_' for space */
+            snprintf(script_text, sizeof script_text, "%s", k + 5);
+            for (char *c = script_text; *c; c++)
+                if (*c == '_')
+                    *c = ' ';
+            (*step)++;
+            return true;
+        }
         SDL_Keycode code = !strcmp(k, "up") ? SDLK_UP : !strcmp(k, "down") ? SDLK_DOWN
                          : !strcmp(k, "left") ? SDLK_LEFT : !strcmp(k, "right") ? SDLK_RIGHT
                          : !strcmp(k, "enter") ? SDLK_RETURN : !strcmp(k, "delete") ? SDLK_DELETE
-                         : !strcmp(k, "esc") ? SDLK_ESCAPE : SDLK_UNKNOWN;
+                         : !strcmp(k, "esc") ? SDLK_ESCAPE : !strcmp(k, "backspace") ? SDLK_BACKSPACE
+                         : SDLK_UNKNOWN;
         SDL_Event ev = { 0 };
         ev.type = SDL_KEYDOWN;
         ev.key.keysym.sym = code;
@@ -885,6 +950,172 @@ static void mods_screen(void)
     nhits = 0;
 }
 
+/* ---- cheats screen ------------------------------------------------------ */
+
+/* rows: the cheats, then ADD CODE, then DONE */
+static void draw_cheats(int sel, int top, int rows, int editing, const char *field, const char *err)
+{
+    fill(0, 0, W, H, C_BG);
+    fill(0, 0, W, 30, C_PANEL);
+    text(16, 11, "CHEATS", C_TITLE, 2);
+    text(110, 13, "GAMESHARK AND GAME GENIE CODES - TURN ON BEFORE PLAYING, F8 TOGGLES IN GAME", C_DIM, 1);
+    for (int r = 0; r < rows && top + r < ncheats; r++) {
+        int k = top + r, y = 44 + r * 22;
+        const Cheat *c = &cheats[k];
+        if (k == sel)
+            fill(8, y - 4, W - 16, 20, C_FOCUS);
+        hit(8, y - 4, W - 16, 20, k, ACT_NEXT);
+        badge(16, y - 1, c->on ? " ON" : "OFF", c->on ? C_YELLOW : C_DIM);
+        text_fit(52, y, c->name, C_TEXT, 40);
+        text_fit(300, y, c->codes, C_DIM, 54);
+    }
+    int y = 44 + rows * 22 + 2;
+    if (sel == ncheats)
+        fill(8, y - 4, W - 16, 20, C_FOCUS);
+    hit(8, y - 4, W - 16, 20, ncheats, ACT_NEXT);
+    if (editing) {
+        char line[220];
+        snprintf(line, sizeof line, "%s%s_", editing == 1 ? "CODE: " : "NAME: ", field);
+        text_fit(16, y, line, C_TITLE, 100);
+    } else {
+        text(16, y, "ADD CODE...", C_TEXT, 1);
+    }
+    if (err && err[0])
+        text_fit(16, y + 16, err, C_RED, 102);
+    else if (editing == 1)
+        text(16, y + 16, "TYPE A GAMESHARK (01VVLLHH) OR GAME GENIE (ABC-DEF-GHI) CODE; SEVERAL WITH SPACES", C_DIM, 1);
+    else if (editing == 2)
+        text(16, y + 16, "TYPE A NAME FOR IT (OR JUST PRESS ENTER)", C_DIM, 1);
+    button(W / 2 - 50, H - 62, 100, 20, "DONE", ncheats + 1, ACT_PLAY, C_BUTTON, sel == ncheats + 1);
+    char where[PATH_MAX_LEN + 32];
+    snprintf(where, sizeof where, "SAVED IN %s", cheats_path() ? cheats_path() : "(NOWHERE)");
+    text_fit(16, H - 32, where, C_DIM, 102);
+    text(16, H - 16, editing ? "ENTER: OK   ESC: CANCEL   BACKSPACE: DELETE A CHARACTER"
+                             : "\x03\x04 SELECT  ENTER/A: ON-OFF  DELETE: REMOVE  ESC/B: BACK", C_DIM, 1);
+}
+
+/* Typed characters: code digits / separators, or name text. */
+static void type_text(int editing, char *field, size_t size, const char *s)
+{
+    for (; *s; s++) {
+        char ch = (char)(*s >= 'a' && *s <= 'z' ? *s - 32 : *s);
+        bool ok = editing == 1 ? (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || ch == '-' || ch == ' ' || ch == '+'
+                               : ch >= ' ' && ch < 127 && ch != '=' && ch != '#';
+        size_t n = strlen(field);
+        if (ok && n + 2 < size) {
+            field[n] = ch;
+            field[n + 1] = 0;
+        }
+    }
+}
+
+static void cheats_screen(void)
+{
+    int sel = 0, top = 0, editing = 0;   /* editing: 1 code, 2 name */
+    const int rows = 10;
+    char field[160] = "", code[192] = "", err[160] = "";
+    uint8_t prev_pad = 0xFF;
+    for (bool done = false; !done;) {
+        bool script_running = script_tick();
+        int activate_row = -1;
+        if (editing && script_text[0])
+            type_text(editing, field, editing == 1 ? sizeof code : sizeof cheats[0].name, script_text);
+        script_text[0] = 0;
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) {
+                done = true;
+            } else if (editing && ev.type == SDL_TEXTINPUT) {
+                type_text(editing, field, editing == 1 ? sizeof code : sizeof cheats[0].name, ev.text.text);
+            } else if (editing && ev.type == SDL_KEYDOWN) {
+                switch (ev.key.keysym.sym) {
+                case SDLK_BACKSPACE: if (field[0]) field[strlen(field) - 1] = 0; break;
+                case SDLK_ESCAPE: editing = 0; err[0] = 0; SDL_StopTextInput(); break;
+                case SDLK_RETURN: case SDLK_KP_ENTER:
+                    if (editing == 1) {
+                        if (cheats_parse_check(field, err, sizeof err)) {
+                            snprintf(code, sizeof code, "%s", field);
+                            field[0] = 0;
+                            editing = 2;
+                        }
+                    } else if (ncheats < CHEATS_MAX) {
+                        Cheat *c = &cheats[ncheats++];
+                        c->on = true;
+                        snprintf(c->codes, sizeof c->codes, "%s", code);
+                        snprintf(c->name, sizeof c->name, "%s", field[0] ? field : code);
+                        sel = ncheats - 1;
+                        editing = 0;
+                        SDL_StopTextInput();
+                    }
+                    break;
+                }
+            } else if (ev.type == SDL_KEYDOWN) {
+                switch (ev.key.keysym.sym) {
+                case SDLK_UP: sel--; break;
+                case SDLK_DOWN: sel++; break;
+                case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: activate_row = sel; break;
+                case SDLK_DELETE:
+                    if (sel < ncheats) {
+                        memmove(&cheats[sel], &cheats[sel + 1], (size_t)(ncheats - sel - 1) * sizeof *cheats);
+                        ncheats--;
+                    }
+                    break;
+                case SDLK_ESCAPE: case SDLK_BACKSPACE: done = true; break;
+                }
+            } else if (!editing && ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                for (int i = nhits - 1; i >= 0; i--)
+                    if (ev.button.x >= hits[i].x && ev.button.x < hits[i].x + hits[i].w &&
+                        ev.button.y >= hits[i].y && ev.button.y < hits[i].y + hits[i].h) {
+                        sel = activate_row = hits[i].item;
+                        break;
+                    }
+            } else if (!editing && ev.type == SDL_MOUSEWHEEL) {
+                sel -= ev.wheel.y;
+            } else if (ev.type == SDL_CONTROLLERDEVICEADDED || ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+                pad_event(&ev);
+            }
+        }
+        uint8_t p = pad_poll().buttons, pressed = p & ~prev_pad;
+        prev_pad = p;
+        if (!editing) {
+            if (pressed & 0x04) sel--;
+            if (pressed & 0x08) sel++;
+            if (pressed & 0x10) activate_row = sel;
+            if (pressed & 0x20) done = true;
+        }
+        if (activate_row >= 0) {
+            if (activate_row < ncheats) {
+                cheats[activate_row].on = !cheats[activate_row].on;
+            } else if (activate_row == ncheats) {
+                editing = 1;
+                field[0] = err[0] = 0;
+                SDL_StartTextInput();
+            } else {
+                done = true;
+            }
+        }
+        if (sel < 0) sel = 0;
+        if (sel > ncheats + 1) sel = ncheats + 1;
+        if (sel < top) top = sel;
+        if (sel < ncheats && sel >= top + rows) top = sel - rows + 1;
+        nhits = 0;
+        draw_cheats(sel, top, rows, editing, field, err);
+        present();
+        if (getenv("DK94_LAUNCHER_KEYS") && !script_running) {
+            if (getenv("DK94_LAUNCHER_SHOT"))
+                write_ppm(getenv("DK94_LAUNCHER_SHOT"));
+            script_shot_taken = true;
+            done = true;
+        }
+        SDL_Delay(16);
+    }
+    if (editing)
+        SDL_StopTextInput();
+    if (!cheats_file_save(cheats_path(), cheats, ncheats))
+        set_message(C_RED, "CANNOT SAVE THE CHEATS FILE");
+    nhits = 0;
+}
+
 bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -908,6 +1139,7 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
     }
     set_rom(cfg.rom);
     set_bios(cfg.bios);
+    ncheats = cheats_file_load(cheats_path(), cheats, CHEATS_MAX);
     if (rom_status == ROM_OK)
         set_message(C_GREEN, "ROM FOUND AND VERIFIED - PRESS PLAY");
     else
@@ -1042,6 +1274,10 @@ bool launcher_run(char *rom, size_t rom_size, char *bios, size_t bios_size)
         for (int i = 0; i < cfg.nmods; i++)
             snprintf(launcher_mods[i], sizeof launcher_mods[i], "%s", cfg.mods[i]);
         launcher_dump = cfg.dump;
+        launcher_cheat_count = 0;
+        for (int i = 0; i < ncheats; i++)
+            if (cheats[i].on)
+                snprintf(launcher_cheats[launcher_cheat_count++], sizeof launcher_cheats[0], "%s", cheats[i].codes);
         snprintf(bios, bios_size, "%s", opt.sgb && bios_status == BIOS_OK ? cfg.bios : "");
     }
     SDL_DestroyTexture(tex);

@@ -14,4 +14,8 @@ extern int launcher_mod_count;
 extern bool launcher_dump;
 extern const char *launcher_mods_dir;   /* --mods-dir, or NULL for the default */
 
+/* code lists of the cheats switched on in the launcher */
+extern char launcher_cheats[64][192];
+extern int launcher_cheat_count;
+
 #endif
