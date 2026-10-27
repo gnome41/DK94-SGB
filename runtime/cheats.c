@@ -195,12 +195,15 @@ size_t cheats_rom_patches(const uint8_t **bank, const uint16_t **addr)
 
 /* ---- cheats file ---- */
 
-/* Found by watching the game's RAM: lives at DA43, the stage timer at C711
- * (counts down from 100). */
+/* Lives are at DA43.  The stage timer (C711, counting down from 100) is
+ * frozen by patching the operand of the "sub a,$01" at 0C4A that ticks it
+ * each second; writing C711 instead would also stop the end-of-stage
+ * bonus, which counts the timer down into the score. */
 static const Cheat builtin[] = {
     { false, "INFINITE LIVES", "010443DA" },
-    { false, "FREEZE STAGE TIMER", "016311C7" },
+    { false, "FREEZE STAGE TIMER", "00C-4BF-EAE" },
 };
+#define OLD_TIMER_CODE "016311C7"    /* the 1.2.0 timer cheat: never-ending bonus count */
 
 int cheats_builtin(Cheat *out, int max)
 {
@@ -249,6 +252,8 @@ int cheats_file_load(const char *path, Cheat *out, int max)
             line = eq + 1;
         }
         snprintf(c.codes, sizeof c.codes, "%s", trim(line));
+        if (!strcmp(c.codes, OLD_TIMER_CODE))
+            snprintf(c.codes, sizeof c.codes, "%s", builtin[1].codes);
         if (!c.name[0])
             snprintf(c.name, sizeof c.name, "%.63s", c.codes);
         if (c.codes[0])
